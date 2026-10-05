@@ -1,0 +1,10 @@
+# Included only with ENABLE_PUSH=true (needs a paid team: free teams can't sign aps-environment).
+targets:
+  LockActivity:
+    entitlements:
+      path: App/LockActivity.entitlements
+      properties:
+        aps-environment: development
+    settings:
+      base:
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) PUSH
