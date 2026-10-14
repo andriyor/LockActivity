@@ -13,7 +13,7 @@ Needs a paid Apple Developer account (push notifications) and Node ≥ 20.
 
 1. Xcode → Settings → Accounts: add the paid account; put its team id in `project.yml` (`DEVELOPMENT_TEAM`).
 2. developer.apple.com → Certificates, Identifiers & Profiles → Keys → `+` → enable
-   *Apple Push Notifications service (APNs)* → download `AuthKey_<KEY_ID>.p8` (only once).
+   _Apple Push Notifications service (APNs)_ → download `AuthKey_<KEY_ID>.p8` (only once).
    The team id is under Membership details.
 3. `cp server/.env.example server/.env` and fill it in (`.env` and `*.p8` are gitignored):
    APNs key path/id/team, and `TOGGL_API_TOKEN` from track.toggl.com/profile.
@@ -38,7 +38,7 @@ the Lock Screen asks Allow / Don't Allow — tap Allow. `SERVER_URL` in `project
 
 ## Two ways to watch Toggl
 
-Both read `/me/time_entries/current` (`server/toggl.mjs`); they differ in *when*.
+Both read `/me/time_entries/current` (`server/toggl.mjs`); they differ in _when_.
 
 ### Polling — `server/toggl-poll.mjs` (start here)
 
@@ -66,12 +66,12 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 
 ## How the server works
 
-| File | Role |
-|---|---|
-| `server/server.mjs` | APNs, state, app routes on :8787. `show(display)` sets what should be on screen; `reconcile()` is the only code that pushes |
-| `server/toggl.mjs` | reads the current Toggl entry (+ project name) and calls `show()` |
-| `server/toggl-poll.mjs`, `server/toggl-webhook.mjs` | decide when to read Toggl |
-| `server/test.mjs` | end-to-end test |
+| File                                                | Role                                                                                                                        |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `server/server.mjs`                                 | APNs, state, app routes on :8787. `show(display)` sets what should be on screen; `reconcile()` is the only code that pushes |
+| `server/toggl.mjs`                                  | reads the current Toggl entry (+ project name) and calls `show()`                                                           |
+| `server/toggl-poll.mjs`, `server/toggl-webhook.mjs` | decide when to read Toggl                                                                                                   |
+| `server/test.mjs`                                   | end-to-end test                                                                                                             |
 
 `reconcile()` runs one at a time (Toggl syncs, a 1-minute tick and the routes share a queue) and:
 
@@ -99,6 +99,9 @@ doesn't notice; it comes back at the next 7.5h restart or when you open the app.
 
     node server/test.mjs   # real server vs fake Toggl + fake APNs, ~2 s; doesn't touch state.json
 
+Formatting: `npm install` once, then `npm run format` (or `npm run format:check`). Prettier is the
+only dev dependency; the server itself needs no `npm install`.
+
 ### Hosting
 
 Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so serverless
@@ -109,6 +112,20 @@ Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so ser
 - iPhone → server: ATS only allows plain `http://` to `.local` names and IP addresses, so
   `http://<mac>.local:8787` (same Wi-Fi) or `http://<tailscale-ip>:8787` (Tailscale on the phone,
   VPN On Demand so token reports never miss) work; a full domain needs HTTPS.
+
+## Possible next steps
+
+- **Input checks + body size limit** (~10 lines in `serve()` and the app routes): reject a
+  missing/non-string `token`/`id` and bodies over ~64 KB — mostly matters for the public webhook port.
+- **Fastify** instead of the hand-rolled router: schema validation, body limits and logging for free,
+  but adds `package.json`/`node_modules` to a zero-dependency server, and the webhook needs a custom
+  content-type parser to keep the raw body for the signature check. Worth it once there are more routes.
+- **TypeScript**: Node ≥ 22.18 runs `.ts` directly (type stripping), so no build step — rename
+  `server/*.mjs` → `.ts`, type `Display`/state/APNs results, add `typescript` as a dev dependency for
+  `tsc --noEmit` (`erasableSyntaxOnly`, `verbatimModuleSyntax`). Worth it if the server grows (e.g. multiple users).
+- **Detect a swiped-away activity**: the app could report `activityStateUpdates` (`.dismissed`/`.ended`)
+  so the server re-creates it sooner than the next 7.5h restart — only while iOS lets the app run,
+  so not guaranteed.
 
 ## Without push (free Apple team)
 

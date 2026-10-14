@@ -43,6 +43,5 @@ async function syncToggl() {
 
 // Serialized so overlapping triggers can't interleave their reads of state.toggl.
 let syncing = Promise.resolve()
-export const queueSync = () =>
-  (syncing = syncing.then(syncToggl).catch((e) => console.error('Toggl sync:', e.message)))
+export const queueSync = () => (syncing = syncing.then(syncToggl).catch((e) => console.error('Toggl sync:', e.message)))
 queueSync() // catch up on anything that changed while the server was down

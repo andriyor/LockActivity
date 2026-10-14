@@ -10,3 +10,4 @@ server/state.json
 *.p8
 .idea
 .env
+node_modules/

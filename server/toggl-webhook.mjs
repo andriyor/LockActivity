@@ -15,7 +15,8 @@ if (!TOGGL_WEBHOOK_SECRET) {
 function verify(raw, headers) {
   const want = createHmac('sha256', TOGGL_WEBHOOK_SECRET).update(raw).digest('hex')
   const got = String(headers['x-webhook-signature-256'] ?? '').replace(/^sha256=/, '')
-  if (got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want))) throw new Error('bad signature')
+  if (got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want)))
+    throw new Error('bad signature')
 }
 
 // Separate port so exposing the webhook doesn't expose /state (push tokens) or /start.

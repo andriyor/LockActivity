@@ -13,7 +13,9 @@ const entry = (te) => writeFileSync(file('te.json'), JSON.stringify(te))
 
 // Fake Toggl: current entry from te.json. Fake APNs: token "dead" gets 410 Unregistered,
 // everything fails while apns-down exists, each push is printed as "PUSH <event> <token> <content-state>".
-writeFileSync(file('mock.mjs'), `
+writeFileSync(
+  file('mock.mjs'),
+  `
 import { existsSync, readFileSync } from 'node:fs'
 import http2 from 'node:http2'
 import { syncBuiltinESMExports } from 'node:module'
@@ -34,23 +36,39 @@ http2.connect = () => ({ on() {}, close() {}, request(headers) {
   }) } }
 } })
 syncBuiltinESMExports()
-`)
-writeFileSync(file('key.p8'), generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' }))
+`,
+)
+writeFileSync(
+  file('key.p8'),
+  generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ type: 'pkcs8', format: 'pem' }),
+)
 
 const children = []
 function run(script, port, env = {}) {
   const lines = []
   const child = spawn(process.execPath, ['--import', file('mock.mjs'), new URL(script, import.meta.url).pathname], {
-    env: { ...process.env, APNS_KEY_PATH: file('key.p8'), APNS_KEY_ID: 'K', APNS_TEAM_ID: 'T', TOGGL_API_TOKEN: 't',
-      PORT: String(port), STATE_FILE: file(`state-${port}.json`), TOGGL_POLL_SECONDS: '0.3', ...env },
+    env: {
+      ...process.env,
+      APNS_KEY_PATH: file('key.p8'),
+      APNS_KEY_ID: 'K',
+      APNS_TEAM_ID: 'T',
+      TOGGL_API_TOKEN: 't',
+      PORT: String(port),
+      STATE_FILE: file(`state-${port}.json`),
+      TOGGL_POLL_SECONDS: '0.3',
+      ...env,
+    },
   })
   children.push(child)
   child.stdout.on('data', (d) => lines.push(...String(d).trim().split('\n')))
   child.stderr.on('data', (d) => lines.push(...String(d).trim().split('\n')))
-  const pushes = () => lines.filter((l) => l.startsWith('PUSH ')).map((l) => {
-    const [, event, token, content] = l.match(/^PUSH (\S+) (\S+) (.*)$/)
-    return { event, token, content: JSON.parse(content) }
-  })
+  const pushes = () =>
+    lines
+      .filter((l) => l.startsWith('PUSH '))
+      .map((l) => {
+        const [, event, token, content] = l.match(/^PUSH (\S+) (\S+) (.*)$/)
+        return { event, token, content: JSON.parse(content) }
+      })
   const waitFor = async (what, ok, ms = 4000) => {
     for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 50))) if (ok()) return
     throw new Error(`timed out waiting for ${what}\n${lines.join('\n')}`)
@@ -99,7 +117,8 @@ try {
   await w.waitFor('webhook server', () => w.lines.some((l) => l.includes(':9873')))
   const body = JSON.stringify({ validation_code: 'v1' })
   const sig = createHmac('sha256', 'sek').update(body).digest('hex')
-  const hook = (signature) => fetch('http://localhost:9873/toggl', { method: 'POST', body, headers: { 'x-webhook-signature-256': signature } })
+  const hook = (signature) =>
+    fetch('http://localhost:9873/toggl', { method: 'POST', body, headers: { 'x-webhook-signature-256': signature } })
   assert.equal((await hook('sha256=00')).status, 400, 'forged signature is rejected')
   assert.deepEqual(await (await hook(`sha256=${sig}`)).json(), { validation_code: 'v1' })
   assert.equal((await fetch('http://localhost:9873/state')).status, 404, 'webhook port exposes only /toggl')

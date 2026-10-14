@@ -118,7 +118,12 @@ async function start() {
   const shown = JSON.stringify(state.display)
   const content = contentState(state.display)
   if (state.activity) {
-    await apns(state.activity.token, { event: 'end', timestamp: nowSec(), 'content-state': content, 'dismissal-date': nowSec() })
+    await apns(state.activity.token, {
+      event: 'end',
+      timestamp: nowSec(),
+      'content-state': content,
+      'dismissal-date': nowSec(),
+    })
   }
   state.activity = null // the app reports the new one via /activity-token
   state.lastStartSentAt = Date.now()
@@ -151,7 +156,11 @@ async function reconcile({ force = false } = {}) {
   const shown = JSON.stringify(state.display)
   if (!state.activity || shown === state.shown) return { status: 200, reason: 'up to date' }
 
-  const res = await apns(state.activity.token, { event: 'update', timestamp: nowSec(), 'content-state': contentState(state.display) })
+  const res = await apns(state.activity.token, {
+    event: 'update',
+    timestamp: nowSec(),
+    'content-state': contentState(state.display),
+  })
   if (res.status === 200) state.shown = shown
   else if (res.status === 410 || DEAD_TOKEN.has(res.reason)) return start()
   save()
