@@ -96,11 +96,11 @@ export async function startActivity(startedAt = Date.now()) {
     event: 'start',
     timestamp: nowSec(),
     'attributes-type': 'LockAttributes',
-    attributes: { title: 'Lock Activity' },
+    attributes: { title: 'Toggl Lock' },
     'content-state': contentState(startedAt),
     'stale-date': nowSec() + 8 * 3600,
     'input-push-token': 1,
-    alert: { title: 'Lock Activity', body: state.message },
+    alert: { title: 'Toggl Lock', body: state.message },
   })
 }
 
@@ -157,7 +157,7 @@ const routes = {
     save()
     return updateActivity()
   },
-  'POST /start': () => startActivity(),
+  'POST /start': () => startActivity(restart.startedAt()), // in Toggl mode: the current timer, not "now"
   'GET /state': () => state,
 }
 

@@ -59,7 +59,7 @@ struct ContentView: View {
         let state = LockAttributes.ContentState(message: message, startedAt: .now)
         do {
             let new = try Activity.request(
-                attributes: LockAttributes(title: "Lock Activity"),
+                attributes: LockAttributes(title: "Toggl Lock"),
                 content: .init(state: state, staleDate: .now.addingTimeInterval(8 * 3600)),
                 pushType: pushType
             )
