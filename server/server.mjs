@@ -84,7 +84,7 @@ const nowSec = () => Math.floor(Date.now() / 1000)
 const contentState = (startedAtMs) => ({
   message: state.message,
   project: state.toggl?.project,
-  startedAt: startedAtMs / 1000 - APPLE_EPOCH,
+  startedAt: startedAtMs == null ? null : startedAtMs / 1000 - APPLE_EPOCH, // null: no timer shown
 })
 
 export async function startActivity(startedAt = Date.now()) {
@@ -104,12 +104,14 @@ export async function startActivity(startedAt = Date.now()) {
   })
 }
 
-export async function updateActivity() {
-  if (!state.activity) return startActivity()
+export async function updateActivity(startedAt = state.activity?.startedAt) {
+  if (!state.activity) return startActivity(startedAt)
+  state.activity.startedAt = startedAt
+  save()
   return apns(state.activity.token, {
     event: 'update',
     timestamp: nowSec(),
-    'content-state': contentState(state.activity.startedAt),
+    'content-state': contentState(startedAt),
   })
 }
 
@@ -126,25 +128,27 @@ export async function endActivity() {
   })
 }
 
-// Set by toggl.mjs: then the activity exists only while a Toggl timer runs.
-export const mode = { toggl: false }
+// What the timer shows when the 8h restart re-creates the activity; toggl.mjs overrides it (null = no timer).
+export const restart = { startedAt: () => Date.now() }
 
 // Restart before the 8h cutoff. lastStartSentAt guards against retrying every minute
 // when a start push landed but the app never reported the new activity's token.
 setInterval(() => {
-  const last = Math.max(state.activity?.startedAt ?? 0, state.lastStartSentAt)
-  if (mode.toggl && !state.toggl) return // no timer running, nothing to show
-  if (state.pushToStartToken && Date.now() - last > RESTART_AFTER_MS) startActivity(state.toggl?.start)
+  const last = Math.max(state.activity?.createdAt ?? 0, state.lastStartSentAt)
+  if (state.pushToStartToken && Date.now() - last > RESTART_AFTER_MS) startActivity(restart.startedAt())
 }, 60 * 1000)
 
 const routes = {
   // app -> server
   'POST /push-to-start-token': (b) => {
     state.pushToStartToken = b.token
+    state.pushToStartTokenAt = Date.now()
     save()
   },
   'POST /activity-token': (b) => {
-    state.activity = { id: b.id, token: b.token, startedAt: b.startedAt * 1000 }
+    // createdAt (not the timer's startedAt) is the activity's age for the 8h restart
+    const createdAt = state.activity?.id === b.id ? state.activity.createdAt : Date.now()
+    state.activity = { id: b.id, token: b.token, createdAt, startedAt: b.startedAt == null ? null : b.startedAt * 1000 }
     save()
   },
   // you -> server

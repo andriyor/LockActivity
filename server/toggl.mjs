@@ -2,14 +2,15 @@
 // toggl-poll.mjs or toggl-webhook.mjs, which decide when to call queueSync().
 //
 // Env: TOGGL_API_TOKEN  from track.toggl.com/profile
-import { endActivity, mode, save, startActivity, state, updateActivity } from './server.mjs'
+import { restart, save, startActivity, state, updateActivity } from './server.mjs'
 
 const { TOGGL_API_TOKEN } = process.env
 if (!TOGGL_API_TOKEN) {
   console.error('Set TOGGL_API_TOKEN')
   process.exit(1)
 }
-mode.toggl = true
+const IDLE = 'No running timer'
+restart.startedAt = () => state.toggl?.start ?? null
 
 let quotaResetAt = 0
 async function toggl(path) {
@@ -39,14 +40,21 @@ async function syncToggl() {
     projectId: te.project_id,
     project,
   }
+  state.message = te ? state.toggl.description : IDLE
   save()
-  if (!te) return state.activity && endActivity()
-  state.message = state.toggl.description
-  // Also start a timer whose start push never went out (e.g. no push-to-start token yet).
-  // lastStartSentAt keeps it from re-sending every poll when the app just hasn't reported the activity.
-  const neverStarted = !state.activity && state.lastStartSentAt < state.toggl.start
-  if (te.id !== prev?.id || neverStarted) return startActivity(state.toggl.start)
-  if (state.toggl.description !== prev.description || project !== prev.project) return updateActivity()
+  // The activity stays up permanently; timer changes are updates, idle shows IDLE without a clock.
+  const startedAt = state.toggl?.start ?? null
+  const shown = JSON.stringify([state.message, project, startedAt])
+  if (!state.activity) {
+    // Start once per push-to-start token report (each app launch); lastStartSentAt keeps it from
+    // re-sending every poll when a start push landed but the app hasn't reported the activity yet.
+    if (state.lastStartSentAt >= (state.pushToStartTokenAt ?? 0)) return
+    state.shown = shown
+    return startActivity(startedAt)
+  }
+  if (shown === state.shown) return
+  state.shown = shown
+  return updateActivity(startedAt)
 }
 
 // Serialized so overlapping triggers can't send two starts.

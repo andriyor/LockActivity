@@ -47,7 +47,7 @@ struct ContentView: View {
 
     // ponytail: only restarts when the app is opened; unattended restarts need server push-to-start
     private func ensureRunning() {
-        if let a = current, Date().timeIntervalSince(a.content.state.startedAt) < maxAge { return }
+        if let a = current, let startedAt = a.content.state.startedAt, Date().timeIntervalSince(startedAt) < maxAge { return }
         start()
     }
 

@@ -32,9 +32,10 @@ The first server-started activity shows Allow / Don't Allow on the Lock Screen; 
 
 ## Mirror the running Toggl Track timer
 
-The activity appears when a Toggl timer starts (from any device, e.g. the desktop browser),
-shows project, description and elapsed time, and ends when the timer stops. The elapsed time
-ticks on-device (also in Always-On), so pushes are sent only when something changes.
+The activity stays on the Lock Screen permanently. While a Toggl timer runs (started from any
+device, e.g. the desktop browser) it shows project, description and elapsed time; otherwise
+"No running timer". Timer changes are update pushes, so no Allow prompt per timer. The elapsed
+time ticks on-device (also in Always-On), so pushes are sent only when something changes.
 
 Both modes read `/me/time_entries/current` (code in `server/toggl.mjs`); they differ in *when*.
 Put `TOGGL_API_TOKEN` (track.toggl.com/profile) in `server/.env`.

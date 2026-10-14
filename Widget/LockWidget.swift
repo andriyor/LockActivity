@@ -13,7 +13,9 @@ struct LockLiveActivity: Widget {
             VStack(alignment: .leading, spacing: 4) {
                 Text(ctx.state.project ?? ctx.attributes.title).font(.headline)
                 Text(ctx.state.message).font(.title3)
-                Text(ctx.state.startedAt, style: .timer).font(.title2.monospacedDigit())
+                if let startedAt = ctx.state.startedAt {
+                    Text(startedAt, style: .timer).font(.title2.monospacedDigit())
+                }
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -26,7 +28,9 @@ struct LockLiveActivity: Widget {
             } compactLeading: {
                 Image(systemName: "lock.fill")
             } compactTrailing: {
-                Text(ctx.state.startedAt, style: .timer).frame(width: 50)
+                if let startedAt = ctx.state.startedAt {
+                    Text(startedAt, style: .timer).frame(width: 50)
+                }
             } minimal: {
                 Image(systemName: "lock.fill")
             }

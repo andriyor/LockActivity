@@ -31,7 +31,7 @@ enum PushSync {
                 await post("activity-token", [
                     "id": activity.id,
                     "token": token.hex,
-                    "startedAt": activity.content.state.startedAt.timeIntervalSince1970,
+                    "startedAt": activity.content.state.startedAt?.timeIntervalSince1970 ?? NSNull(),
                 ])
             }
         }
