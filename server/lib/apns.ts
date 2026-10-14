@@ -9,6 +9,9 @@ import { createSign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { connect } from "node:http2";
 
+// 200 on success, 0 on network failure, else APNs' status; reason is APNs' error reason.
+export type PushResult = { status: number; reason: string };
+
 const {
   APNS_KEY_PATH,
   APNS_KEY_ID,
@@ -27,7 +30,7 @@ let jwt = { token: "", iat: 0 };
 function providerToken() {
   const now = Math.floor(Date.now() / 1000);
   if (now - jwt.iat < 50 * 60) return jwt.token; // APNs rejects tokens older than 1h
-  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const data = `${b64({ alg: "ES256", kid: APNS_KEY_ID })}.${b64({ iss: APNS_TEAM_ID, iat: now })}`;
   const sig = createSign("sha256")
     .update(data)
@@ -37,7 +40,7 @@ function providerToken() {
   return jwt.token;
 }
 
-const reasonOf = (body) => {
+const reasonOf = (body: string): string => {
   try {
     return JSON.parse(body).reason ?? body;
   } catch {
@@ -45,12 +48,11 @@ const reasonOf = (body) => {
   }
 };
 
-// Resolves { status, reason }: 200 on success, 0 on network failure, else APNs' status and error reason.
-export function push(deviceToken, aps) {
-  return new Promise((resolve) => {
+export function push(deviceToken: string, aps: { event: string } & Record<string, unknown>) {
+  return new Promise<PushResult>((resolve) => {
     const client = connect(`https://${APNS_HOST}`);
     let settled = false; // session and stream can both report the same failure
-    const done = (status, reason = "") => {
+    const done = (status: number, reason = "") => {
       if (settled) return;
       settled = true;
       client.close();
@@ -69,7 +71,7 @@ export function push(deviceToken, aps) {
     let status = 0;
     let body = "";
     req.on("error", (e) => done(0, e.message)); // network failure must not crash the server
-    req.on("response", (h) => (status = h[":status"]));
+    req.on("response", (h) => (status = h[":status"] ?? 0));
     req.on("data", (c) => (body += c));
     req.on("end", () => done(status, reasonOf(body)));
     req.end(JSON.stringify({ aps }));

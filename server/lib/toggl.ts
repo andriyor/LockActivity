@@ -1,8 +1,16 @@
 // Mirrors the running Toggl Track timer into the Live Activity. sync() reads Toggl and calls
 // show(); toggl-poll.mjs / toggl-webhook.mjs decide when to call it.
 // Env: TOGGL_API_TOKEN  from track.toggl.com/profile
-import { show } from "./activity.mjs";
-import { save, state } from "./state.mjs";
+import { show } from "./activity.ts";
+import { save, state } from "./state.ts";
+
+// The fields of a Toggl time entry this file reads.
+type TimeEntry = {
+  start: string;
+  description: string | null;
+  project_id: number | null;
+  workspace_id: number;
+};
 
 const { TOGGL_API_TOKEN } = process.env;
 if (!TOGGL_API_TOKEN) {
@@ -11,7 +19,7 @@ if (!TOGGL_API_TOKEN) {
 }
 
 let quotaResetAt = 0;
-async function toggl(path) {
+async function toggl<T>(path: string): Promise<T> {
   const res = await fetch(`https://api.track.toggl.com/api/v9${path}`, {
     headers: {
       authorization: `Basic ${Buffer.from(`${TOGGL_API_TOKEN}:api_token`).toString("base64")}`,
@@ -26,14 +34,15 @@ async function toggl(path) {
 // The current entry is the source of truth, which also ignores teammates' entries.
 async function syncOnce() {
   if (Date.now() < quotaResetAt) return; // out of hourly quota; calls would only fail
-  const te = await toggl("/me/time_entries/current"); // null when nothing is running
+  const te = await toggl<TimeEntry | null>("/me/time_entries/current"); // null when nothing is running
   const prev = state.toggl;
   // ponytail: project name is re-fetched only when the project changes, so a rename shows on the next entry
   const project = !te?.project_id
     ? null
-    : te.project_id === prev?.projectId
+    : prev && te.project_id === prev.projectId
       ? prev.project
-      : (await toggl(`/workspaces/${te.workspace_id}/projects/${te.project_id}`)).name;
+      : (await toggl<{ name: string }>(`/workspaces/${te.workspace_id}/projects/${te.project_id}`))
+          .name;
   state.toggl = te && { projectId: te.project_id, project }; // cache for the lookup above
   save();
   // The activity stays up permanently; with nothing running it shows a message and no clock.
@@ -45,6 +54,6 @@ async function syncOnce() {
 }
 
 // Serialized so overlapping triggers can't interleave their reads of state.toggl.
-let syncing = Promise.resolve();
+let syncing: Promise<unknown> = Promise.resolve();
 export const sync = () =>
   (syncing = syncing.then(syncOnce).catch((e) => console.error("Toggl sync:", e.message)));

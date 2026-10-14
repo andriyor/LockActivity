@@ -3,9 +3,9 @@
 // Env: see lib/*, plus
 //   TOGGL_POLL_SECONDS  default 150 (~24 req/h, fits the 30/h quota). The /me quota is per user;
 //                       check yours with GET /api/v9/me/quota (organization_id null). 240/h → 20 is fine.
-import { keepAlive } from "./lib/activity.mjs";
-import { serveApp } from "./lib/http.mjs";
-import { sync } from "./lib/toggl.mjs";
+import { keepAlive } from "./lib/activity.ts";
+import { serveApp } from "./lib/http.ts";
+import { sync } from "./lib/toggl.ts";
 
 const POLL_MS = Number(process.env.TOGGL_POLL_SECONDS || 150) * 1000;
 

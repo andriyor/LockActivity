@@ -1,0 +1,15 @@
+{
+  // Type-check only: Node runs the .ts files directly (type stripping), so nothing is emitted.
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "esnext",
+    "module": "nodenext",
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "strict": true,
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["*.ts", "lib/*.ts"]
+}

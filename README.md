@@ -15,7 +15,8 @@ The elapsed time ticks on the phone, so pushes go out only when something change
 
 ## Setup
 
-Needs a paid Apple Developer account (push notifications) and Node ≥ 20.
+Needs a paid Apple Developer account (push notifications) and Node ≥ 22.18, which runs the
+server's TypeScript directly (type stripping) — no build step, no `npm install` to run it.
 
 1. Xcode → Settings → Accounts: add the paid account; put its team id in `ios/project.yml` (`DEVELOPMENT_TEAM`).
 2. developer.apple.com → Certificates, Identifiers & Profiles → Keys → `+` → enable
@@ -25,7 +26,7 @@ Needs a paid Apple Developer account (push notifications) and Node ≥ 20.
    APNs key path/id/team, and `TOGGL_API_TOKEN` from track.toggl.com/profile.
 4. Start the server (see the two modes below), e.g.
 
-       node --env-file=server/.env server/toggl-poll.mjs
+       cd server && npm start   # = node --env-file=.env toggl-poll.ts; needs no npm install
 
 5. Build and run the app on the iPhone (same Wi-Fi as the Mac), allow Local Network access.
    In Xcode: `cd ios && ENABLE_PUSH=true xcodegen generate && open LockActivity.xcodeproj`, then Run.
@@ -47,18 +48,18 @@ the Lock Screen asks Allow / Don't Allow — tap Allow. `SERVER_URL` in `ios/pro
 
 ## Two ways to watch Toggl
 
-Both read `/me/time_entries/current` (`server/lib/toggl.mjs`); they differ in _when_.
+Both read `/me/time_entries/current` (`server/lib/toggl.ts`); they differ in _when_.
 
-### Polling — `server/toggl-poll.mjs` (start here)
+### Polling — `server/toggl-poll.ts` (start here)
 
 Nothing has to be public. Changes appear within `TOGGL_POLL_SECONDS` (default 150 s, ~24 req/h).
 Toggl's docs say `/me` endpoints get 30 requests/hour, but the real quota can be higher — check
 `GET /api/v9/me/quota` (the `organization_id: null` entry). With 240/h (Starter) use 20.
 When the quota runs out the server pauses until it resets.
 
-    node --env-file=server/.env server/toggl-poll.mjs
+    cd server && npm start
 
-### Webhooks — `server/toggl-webhook.mjs` (instant)
+### Webhooks — `server/toggl-webhook.ts` (instant)
 
 Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 
@@ -66,7 +67,7 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 2. Expose **only** port 8788 (it serves just the signed `POST /toggl`), e.g. `tailscale funnel 8788`
    (stable URL) or `cloudflared tunnel --url http://localhost:8788` (URL changes each run).
    Port 8787 has no auth and `/state` holds push tokens — never expose it.
-3. Set `TOGGL_WEBHOOK_SECRET=<secret>` in `server/.env`, run `node --env-file=server/.env server/toggl-webhook.mjs`.
+3. Set `TOGGL_WEBHOOK_SECRET=<secret>` in `server/.env`, run `npm run start:webhook` in `server/`.
 4. Subscribe (the server answers Toggl's validation ping itself):
 
        curl -u $TOGGL_API_TOKEN:api_token -H 'Content-Type: application/json' \
@@ -75,16 +76,16 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 
 ## How the server works
 
-| File                                                | Role                                                                                      |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `server/main.mjs`                                   | entry: plain activity, no Toggl                                                           |
-| `server/toggl-poll.mjs`, `server/toggl-webhook.mjs` | entries: mirror Toggl, by polling or webhooks                                             |
-| `server/lib/activity.mjs`                           | `show(display)` sets what should be on screen; `reconcile()` is the only code that pushes |
-| `server/lib/apns.mjs`                               | APNs JWT + send a push                                                                    |
-| `server/lib/http.mjs`                               | tiny JSON router + app routes on :8787                                                    |
-| `server/lib/state.mjs`                              | state + atomic save to `server/state.json`                                                |
-| `server/lib/toggl.mjs`                              | reads the current Toggl entry (+ project name) and calls `show()`                         |
-| `server/test.mjs`                                   | end-to-end test                                                                           |
+| File                                              | Role                                                                                      |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `server/main.ts`                                  | entry: plain activity, no Toggl                                                           |
+| `server/toggl-poll.ts`, `server/toggl-webhook.ts` | entries: mirror Toggl, by polling or webhooks                                             |
+| `server/lib/activity.ts`                          | `show(display)` sets what should be on screen; `reconcile()` is the only code that pushes |
+| `server/lib/apns.ts`                              | APNs JWT + send a push                                                                    |
+| `server/lib/http.ts`                              | tiny JSON router + app routes on :8787                                                    |
+| `server/lib/state.ts`                             | state + atomic save to `server/state.json`                                                |
+| `server/lib/toggl.ts`                             | reads the current Toggl entry (+ project name) and calls `show()`                         |
+| `server/test.ts`                                  | end-to-end test                                                                           |
 
 `reconcile()` runs one at a time (Toggl syncs, a 1-minute tick and the routes share a queue) and:
 
@@ -103,7 +104,7 @@ State lives in `server/state.json` (written atomically). Manual routes for pokin
     curl -XPOST localhost:8787/start                            # re-create the activity now
     curl -XPOST localhost:8787/message -d '{"message":"hi"}'    # change the text (no-Toggl mode)
 
-Running `node --env-file=server/.env server/main.mjs` alone (no Toggl) keeps a plain activity
+Running `node --env-file=server/.env server/main.ts` alone (no Toggl) keeps a plain activity
 showing that message.
 
 Known gap: if you swipe the activity away (or reinstall the app), APNs may keep accepting updates for
@@ -112,10 +113,14 @@ it, so the server can't tell while the app stays closed; it comes back when you 
 
 ### Test
 
-    node server/test.mjs   # real server vs fake Toggl + fake APNs, ~2 s; doesn't touch state.json
+    node server/test.ts   # real server vs fake Toggl + fake APNs, ~2 s; doesn't touch state.json
 
-Formatting (server code and this README): in `server/`, `npm install` once, then `npm run format`
-(or `npm run format:check`). Prettier is the only dev dependency; running the server needs no `npm install`.
+Dev tooling, in `server/` after `npm install` once (dev dependencies only — Prettier, TypeScript,
+`@types/node`; running the server needs none of them):
+
+    npm run typecheck      # tsc, strict, no emit
+    npm test
+    npm run format         # or format:check; server code only
 
 Swift (`ios/`) uses Apple's `swift-format` from the Xcode toolchain with its defaults (2 spaces,
 100 columns; `ios/project.yml` sets Xcode's indent to match):
@@ -136,14 +141,11 @@ Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so ser
 
 ## Possible next steps
 
-- **Input checks + body size limit** (~10 lines in `serve()` and the app routes): reject a
-  missing/non-string `token`/`id` and bodies over ~64 KB — mostly matters for the public webhook port.
+- **Body size limit** (a few lines in `serve()`): reject bodies over ~64 KB — mostly matters for the
+  public webhook port. (Input checks are done: `str()` in `server/lib/http.ts`.)
 - **Fastify** instead of the hand-rolled router: schema validation, body limits and logging for free,
-  but adds `package.json`/`node_modules` to a zero-dependency server, and the webhook needs a custom
+  but adds a runtime dependency to a server that has none, and the webhook needs a custom
   content-type parser to keep the raw body for the signature check. Worth it once there are more routes.
-- **TypeScript**: Node ≥ 22.18 runs `.ts` directly (type stripping), so no build step — rename
-  `server/*.mjs` → `.ts`, type `Display`/state/APNs results, add `typescript` as a dev dependency for
-  `tsc --noEmit` (`erasableSyntaxOnly`, `verbatimModuleSyntax`). Worth it if the server grows (e.g. multiple users).
 - **Detect a swiped-away activity**: the app could report `activityStateUpdates` (`.dismissed`/`.ended`)
   so the server re-creates it without waiting for the next app launch — only while iOS lets the app
   run, so not guaranteed.

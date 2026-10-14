@@ -1,15 +1,15 @@
-// End-to-end check of the server against a fake Toggl and a fake APNs: node server/test.mjs
+// End-to-end check of the server against a fake Toggl and a fake APNs: node server/test.ts
 // Runs the real entry points in child processes with a temp STATE_FILE; never touches state.json.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync, createHmac } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "lockactivity-test-"));
-const file = (name) => join(dir, name);
-const entry = (te) => writeFileSync(file("te.json"), JSON.stringify(te));
+const file = (name: string) => join(dir, name);
+const entry = (te: object | null) => writeFileSync(file("te.json"), JSON.stringify(te));
 
 // Fake Toggl: current entry from te.json. Fake APNs: token "dead" gets 410 Unregistered,
 // everything fails while apns-down exists, each push is printed as "PUSH <event> <token> <content-state>".
@@ -46,9 +46,11 @@ writeFileSync(
   }),
 );
 
-const children = [];
-function run(script, port, env = {}) {
-  const lines = [];
+type Push = { event: string; token: string; content: Record<string, unknown> };
+
+const children: ChildProcess[] = [];
+function run(script: string, port: number, env: Record<string, string> = {}) {
+  const lines: string[] = [];
   const child = spawn(
     process.execPath,
     ["--import", file("mock.mjs"), new URL(script, import.meta.url).pathname],
@@ -69,19 +71,19 @@ function run(script, port, env = {}) {
   children.push(child);
   child.stdout.on("data", (d) => lines.push(...String(d).trim().split("\n")));
   child.stderr.on("data", (d) => lines.push(...String(d).trim().split("\n")));
-  const pushes = () =>
+  const pushes = (): Push[] =>
     lines
       .filter((l) => l.startsWith("PUSH "))
       .map((l) => {
-        const [, event, token, content] = l.match(/^PUSH (\S+) (\S+) (.*)$/);
+        const [, event, token, content] = l.match(/^PUSH (\S+) (\S+) (.*)$/)!;
         return { event, token, content: JSON.parse(content) };
       });
-  const waitFor = async (what, ok, ms = 4000) => {
+  const waitFor = async (what: string, ok: () => boolean, ms = 4000) => {
     for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 50)))
       if (ok()) return;
     throw new Error(`timed out waiting for ${what}\n${lines.join("\n")}`);
   };
-  const post = (path, body, headers = {}) =>
+  const post = (path: string, body: object, headers: Record<string, string> = {}) =>
     fetch(`http://localhost:${port}${path}`, {
       method: "POST",
       body: JSON.stringify(body),
@@ -93,16 +95,29 @@ function run(script, port, env = {}) {
 try {
   // --- polling mode
   entry(null);
-  const s = run("./toggl-poll.mjs", 9871);
+  const s = run("./toggl-poll.ts", 9871);
   await s.waitFor("server", () => s.lines.some((l) => l.includes("listening")));
-  const last = () => s.pushes().at(-1);
+  // untrusted bodies: a missing token or a non-object body is a 400, not a stored undefined
+  assert.equal((await s.post("/push-to-start-token", {})).status, 400);
+  assert.equal((await s.post("/activity-token", { id: "x", token: 5 })).status, 400);
+  assert.equal(
+    (await fetch("http://localhost:9871/message", { method: "POST", body: "5" })).status,
+    400,
+  );
+
+  const last = (): Push | undefined => s.pushes().at(-1);
+  const lastPush = () => last() ?? assert.fail("no push yet");
 
   const starts = () => s.pushes().filter((p) => p.event === "start").length;
   // first launch: the app reports no alive activities, then its token → exactly one start
   await s.post("/activities", { ids: [] });
   await s.post("/push-to-start-token", { token: "ptst" });
   await s.waitFor("start on first launch", () => last()?.event === "start");
-  assert.deepEqual(last().content, { message: "No running timer", project: null, startedAt: null });
+  assert.deepEqual(lastPush().content, {
+    message: "No running timer",
+    project: null,
+    startedAt: null,
+  });
 
   await s.post("/activity-token", { id: "a", token: "act" });
   await s.waitFor("update to the new activity", () => last()?.token === "act");
@@ -118,16 +133,16 @@ try {
     workspace_id: 3,
   });
   await s.waitFor("timer start update", () => last()?.content.message === "Coding");
-  assert.equal(last().event, "update", "a new timer is an update, not a new activity");
-  assert.equal(last().content.project, "Project 7");
-  assert.equal(last().content.startedAt, Date.parse("2026-10-14T08:00:00Z") / 1000 - 978307200);
+  assert.equal(lastPush().event, "update", "a new timer is an update, not a new activity");
+  assert.equal(lastPush().content.project, "Project 7");
+  assert.equal(lastPush().content.startedAt, Date.parse("2026-10-14T08:00:00Z") / 1000 - 978307200);
 
   writeFileSync(file("apns-down"), "");
   entry(null);
   await s.waitFor("failed update", () => s.lines.some((l) => l.startsWith("APNs update -> 0")));
   rmSync(file("apns-down"));
   await s.waitFor("retried update", () => last()?.content.message === "No running timer");
-  assert.equal(last().event, "update");
+  assert.equal(lastPush().event, "update");
 
   await s.post("/activity-token", { id: "b", token: "dead" });
   await s.waitFor("start after dead token", () => last()?.event === "start");
@@ -148,11 +163,11 @@ try {
   s.child.kill();
 
   // --- webhook mode: signature check and validation handshake
-  const w = run("./toggl-webhook.mjs", 9872, { TOGGL_WEBHOOK_SECRET: "sek", WEBHOOK_PORT: "9873" });
+  const w = run("./toggl-webhook.ts", 9872, { TOGGL_WEBHOOK_SECRET: "sek", WEBHOOK_PORT: "9873" });
   await w.waitFor("webhook server", () => w.lines.some((l) => l.includes(":9873")));
   const body = JSON.stringify({ validation_code: "v1" });
   const sig = createHmac("sha256", "sek").update(body).digest("hex");
-  const hook = (signature) =>
+  const hook = (signature: string) =>
     fetch("http://localhost:9873/toggl", {
       method: "POST",
       body,

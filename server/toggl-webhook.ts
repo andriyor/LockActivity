@@ -3,18 +3,20 @@
 //   TOGGL_WEBHOOK_SECRET  the secret given when creating the subscription
 //   WEBHOOK_PORT          default 8788, serves only POST /toggl; expose only this port
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { keepAlive } from "./lib/activity.mjs";
-import { serve, serveApp } from "./lib/http.mjs";
-import { sync } from "./lib/toggl.mjs";
+import { keepAlive } from "./lib/activity.ts";
+import type { IncomingHttpHeaders } from "node:http";
+import { serve, serveApp } from "./lib/http.ts";
+import { sync } from "./lib/toggl.ts";
 
 const { TOGGL_WEBHOOK_SECRET, WEBHOOK_PORT = "8788" } = process.env;
 if (!TOGGL_WEBHOOK_SECRET) {
   console.error("Set TOGGL_WEBHOOK_SECRET");
   process.exit(1);
 }
+const secret = TOGGL_WEBHOOK_SECRET;
 
-function verify(raw, headers) {
-  const want = createHmac("sha256", TOGGL_WEBHOOK_SECRET).update(raw).digest("hex");
+function verify(raw: string, headers: IncomingHttpHeaders) {
+  const want = createHmac("sha256", secret).update(raw).digest("hex");
   const got = String(headers["x-webhook-signature-256"] ?? "").replace(/^sha256=/, "");
   if (got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want)))
     throw new Error("bad signature");

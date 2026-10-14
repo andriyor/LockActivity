@@ -1,8 +1,8 @@
 // Keeps the one Live Activity in line with state.display: push-to-start when there is none (or it
 // is near iOS's 8h limit), update pushes when the display changes. reconcile() is the only code
 // that pushes, and every call goes through one queue so nothing pushes concurrently.
-import { push } from "./apns.mjs";
-import { save, state } from "./state.mjs";
+import { push, type PushResult } from "./apns.ts";
+import { save, state, type Display } from "./state.ts";
 
 const TITLE = "Toggl Lock";
 const RESTART_AFTER_MS = 7.5 * 3600 * 1000; // iOS ends activities at 8h
@@ -15,13 +15,13 @@ const APPLE_EPOCH = 978307200;
 const DEAD_TOKEN = new Set(["BadDeviceToken", "ExpiredToken", "Unregistered"]);
 
 const nowSec = () => Math.floor(Date.now() / 1000);
-const contentState = ({ message, project, startedAt }) => ({
+const contentState = ({ message, project, startedAt }: Display) => ({
   message,
   project,
   startedAt: startedAt == null ? null : startedAt / 1000 - APPLE_EPOCH, // null: no timer shown
 });
 
-async function start() {
+async function start(): Promise<PushResult> {
   const shown = JSON.stringify(state.display);
   const content = contentState(state.display);
   if (state.activity) {
@@ -34,7 +34,7 @@ async function start() {
   }
   state.activity = null; // the app reports the new one via /activity-token
   state.lastStartSentAt = Date.now();
-  const res = await push(state.pushToStartToken, {
+  const res = await push(state.pushToStartToken!, {
     event: "start",
     timestamp: nowSec(),
     "attributes-type": "LockAttributes",
@@ -52,7 +52,7 @@ async function start() {
 
 // Start when there's no activity or it's near 8h, update when the display changed,
 // retry a failed update on the next call, start over when APNs says the token is dead.
-async function reconcile({ force = false } = {}) {
+async function reconcile({ force = false } = {}): Promise<PushResult> {
   if (!state.pushToStartToken)
     return { status: 0, reason: "no push-to-start token yet; open the app once" };
   const now = Date.now();
@@ -75,29 +75,29 @@ async function reconcile({ force = false } = {}) {
   return res;
 }
 
-let queue = Promise.resolve();
-const enqueue = (fn) =>
-  (queue = queue.then(fn).catch((e) => console.error("reconcile:", e.message)));
+let queue: Promise<unknown> = Promise.resolve();
+const enqueue = (fn: () => Promise<PushResult>) =>
+  (queue = queue.then(fn).catch((e: Error) => console.error("reconcile:", e.message)));
 
 // Set what the Lock Screen should show. Always reconciles, so a failed push is retried next call.
-export function show(display) {
+export function show(display: Display) {
   state.display = display;
   save();
   return enqueue(reconcile);
 }
 
 // The app reports its push-to-start token on every launch (it may arrive after /activities).
-export function setPushToStartToken(token) {
+export function setPushToStartToken(token: string) {
   state.pushToStartToken = token;
   save();
   return enqueue(reconcile);
 }
 
 // The app reports each activity's push token (including ones the server started).
-export function setActivity(id, token) {
+export function setActivity(id: string, token: string) {
   const known = state.activity?.id === id;
   if (!known) state.shown = null; // its content is unknown; resend the display
-  state.activity = { id, token, createdAt: known ? state.activity.createdAt : Date.now() };
+  state.activity = { id, token, createdAt: known ? state.activity!.createdAt : Date.now() };
   save();
   return enqueue(reconcile);
 }
@@ -105,7 +105,7 @@ export function setActivity(id, token) {
 // On launch the app lists the activities still alive on the phone. If ours isn't among them
 // (first launch, dismissed, ended by iOS, app reinstalled) a start is wanted. APNs may still
 // accept updates for a gone activity, so this report is the only way to notice.
-export function setAliveActivities(ids) {
+export function setAliveActivities(ids: string[]) {
   if (state.activity && ids.includes(state.activity.id)) return;
   if (state.activity) console.log(`activity ${state.activity.id} is gone on the phone`);
   state.activity = null;
