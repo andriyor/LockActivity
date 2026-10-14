@@ -1,5 +1,5 @@
-// Keeps a Live Activity on the Lock Screen by re-starting it via APNs push-to-start
-// before iOS's 8h limit. Zero dependencies: node >= 20.
+// Keeps a Live Activity on the Lock Screen via APNs: push-to-start when there is none (or it is
+// near iOS's 8h limit), update pushes when the display changes. Zero dependencies: node >= 20.
 // Run directly for manual control, or via toggl-poll.mjs / toggl-webhook.mjs to mirror Toggl.
 //
 // Env:
@@ -9,10 +9,12 @@
 //   BUNDLE_ID      default com.andriyor.LockActivity
 //   APNS_HOST      default api.sandbox.push.apple.com (debug builds); api.push.apple.com for TestFlight/App Store
 //   PORT           default 8787 (app + manual routes; keep on the LAN)
+//   STATE_FILE     default server/state.json
 import { createSign } from 'node:crypto'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { connect } from 'node:http2'
+import { fileURLToPath } from 'node:url'
 
 const {
   APNS_KEY_PATH,
@@ -21,22 +23,38 @@ const {
   BUNDLE_ID = 'com.andriyor.LockActivity',
   APNS_HOST = 'api.sandbox.push.apple.com',
   PORT = '8787',
+  STATE_FILE = fileURLToPath(new URL('./state.json', import.meta.url)),
 } = process.env
 if (!APNS_KEY_PATH || !APNS_KEY_ID || !APNS_TEAM_ID) {
   console.error('Set APNS_KEY_PATH, APNS_KEY_ID, APNS_TEAM_ID')
   process.exit(1)
 }
 
+const TITLE = 'Toggl Lock'
 const RESTART_AFTER_MS = 7.5 * 3600 * 1000 // iOS ends activities at 8h
-const STATE_FILE = new URL('./state.json', import.meta.url)
+// A start push whose activity the app never reported (e.g. phone off the server's network) is
+// retried after this long; shorter would re-alert the phone over and over.
+const RETRY_START_MS = 60 * 60 * 1000
 // ActivityKit decodes Date as seconds since 2001-01-01 (Codable default)
 const APPLE_EPOCH = 978307200
+// APNs reasons for an activity token that will never work again
+const DEAD_TOKEN = new Set(['BadDeviceToken', 'ExpiredToken', 'Unregistered'])
 
 // ponytail: single device, JSON file state; use a DB keyed by device when there's more than one user
-export const state = existsSync(STATE_FILE)
-  ? JSON.parse(readFileSync(STATE_FILE, 'utf8'))
-  : { pushToStartToken: null, activity: null, lastStartSentAt: 0, message: 'Hello from the server' }
-export const save = () => writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+export const state = {
+  pushToStartToken: null,
+  pushToStartTokenAt: 0, // last time the app reported it (each launch)
+  activity: null, // { id, token, createdAt } as reported by the app
+  lastStartSentAt: 0,
+  display: { message: 'Hello from the server', project: null, startedAt: null }, // what should be on screen
+  shown: null, // JSON of the display the current activity last accepted
+  ...(existsSync(STATE_FILE) ? JSON.parse(readFileSync(STATE_FILE, 'utf8')) : {}),
+}
+// Write-then-rename so a crash mid-write can't leave invalid JSON behind.
+export function save() {
+  writeFileSync(`${STATE_FILE}.tmp`, JSON.stringify(state, null, 2))
+  renameSync(`${STATE_FILE}.tmp`, STATE_FILE)
+}
 
 const key = readFileSync(APNS_KEY_PATH, 'utf8')
 let jwt = { token: '', iat: 0 }
@@ -50,10 +68,27 @@ function providerToken() {
   return jwt.token
 }
 
+const reasonOf = (body) => {
+  try {
+    return JSON.parse(body).reason ?? body
+  } catch {
+    return body
+  }
+}
+
+// Resolves { status, reason }: 200 on success, 0 on network failure, else APNs' status and error reason.
 function apns(deviceToken, aps) {
   return new Promise((resolve) => {
     const client = connect(`https://${APNS_HOST}`)
-    client.on('error', (e) => resolve({ status: 0, body: e.message }))
+    let settled = false // session and stream can both report the same failure
+    const done = (status, reason = '') => {
+      if (settled) return
+      settled = true
+      client.close()
+      console.log(`APNs ${aps.event} -> ${status} ${reason}`)
+      resolve({ status, reason })
+    }
+    client.on('error', (e) => done(0, e.message))
     const req = client.request({
       ':method': 'POST',
       ':path': `/3/device/${deviceToken}`,
@@ -64,79 +99,78 @@ function apns(deviceToken, aps) {
     })
     let status = 0
     let body = ''
-    req.on('error', (e) => {
-      client.close()
-      console.log(`APNs ${aps.event} -> ${e.message}`)
-      resolve({ status: 0, body: e.message }) // network failure must not crash the server
-    })
+    req.on('error', (e) => done(0, e.message)) // network failure must not crash the server
     req.on('response', (h) => (status = h[':status']))
     req.on('data', (c) => (body += c))
-    req.on('end', () => {
-      client.close()
-      console.log(`APNs ${aps.event} -> ${status} ${body}`)
-      resolve({ status, body })
-    })
+    req.on('end', () => done(status, reasonOf(body)))
     req.end(JSON.stringify({ aps }))
   })
 }
 
 const nowSec = () => Math.floor(Date.now() / 1000)
-const contentState = (startedAtMs) => ({
-  message: state.message,
-  project: state.toggl?.project,
-  startedAt: startedAtMs == null ? null : startedAtMs / 1000 - APPLE_EPOCH, // null: no timer shown
+const contentState = ({ message, project, startedAt }) => ({
+  message,
+  project,
+  startedAt: startedAt == null ? null : startedAt / 1000 - APPLE_EPOCH, // null: no timer shown
 })
 
-export async function startActivity(startedAt = Date.now()) {
-  if (!state.pushToStartToken) return { status: 0, body: 'no push-to-start token yet; open the app once' }
-  if (state.activity) await endActivity()
+async function start() {
+  const shown = JSON.stringify(state.display)
+  const content = contentState(state.display)
+  if (state.activity) {
+    await apns(state.activity.token, { event: 'end', timestamp: nowSec(), 'content-state': content, 'dismissal-date': nowSec() })
+  }
+  state.activity = null // the app reports the new one via /activity-token
   state.lastStartSentAt = Date.now()
-  save()
-  return apns(state.pushToStartToken, {
+  const res = await apns(state.pushToStartToken, {
     event: 'start',
     timestamp: nowSec(),
     'attributes-type': 'LockAttributes',
-    attributes: { title: 'Toggl Lock' },
-    'content-state': contentState(startedAt),
+    attributes: { title: TITLE },
+    'content-state': content,
     'stale-date': nowSec() + 8 * 3600,
     'input-push-token': 1,
-    alert: { title: 'Toggl Lock', body: state.message },
+    alert: { title: TITLE, body: state.display.message },
   })
-}
-
-export async function updateActivity(startedAt = state.activity?.startedAt) {
-  if (!state.activity) return startActivity(startedAt)
-  state.activity.startedAt = startedAt
+  state.shown = res.status === 200 ? shown : null
   save()
-  return apns(state.activity.token, {
-    event: 'update',
-    timestamp: nowSec(),
-    'content-state': contentState(startedAt),
-  })
+  return res
 }
 
-export async function endActivity() {
-  const { token, startedAt } = state.activity
-  state.activity = null
+// The only place that sends pushes. Brings the Lock Screen in line with state.display:
+// start when there's no activity or it's near 8h, update when the display changed,
+// retry a failed update on the next call, start over when APNs says the token is dead.
+async function reconcile({ force = false } = {}) {
+  if (!state.pushToStartToken) return { status: 0, reason: 'no push-to-start token yet; open the app once' }
+  const now = Date.now()
+  const startRetryDue = now - state.lastStartSentAt > RETRY_START_MS
+  const needStart = !state.activity
+    ? state.pushToStartTokenAt > state.lastStartSentAt || startRetryDue
+    : now - state.activity.createdAt > RESTART_AFTER_MS && startRetryDue
+  if (force || needStart) return start()
+  const shown = JSON.stringify(state.display)
+  if (!state.activity || shown === state.shown) return { status: 200, reason: 'up to date' }
+
+  const res = await apns(state.activity.token, { event: 'update', timestamp: nowSec(), 'content-state': contentState(state.display) })
+  if (res.status === 200) state.shown = shown
+  else if (res.status === 410 || DEAD_TOKEN.has(res.reason)) return start()
   save()
-  // Apple's end payload carries the final content-state; APNs returns 200 either way, so don't rely on omitting it
-  return apns(token, {
-    event: 'end',
-    timestamp: nowSec(),
-    'content-state': contentState(startedAt),
-    'dismissal-date': nowSec(),
-  })
+  return res
 }
 
-// What the timer shows when the 8h restart re-creates the activity; toggl.mjs overrides it (null = no timer).
-export const restart = { startedAt: () => Date.now() }
+// Serialized so a sync, the restart tick and manual routes can never push concurrently.
+let queue = Promise.resolve()
+const enqueue = (fn) => (queue = queue.then(fn).catch((e) => console.error('reconcile:', e.message)))
 
-// Restart before the 8h cutoff. lastStartSentAt guards against retrying every minute
-// when a start push landed but the app never reported the new activity's token.
-setInterval(() => {
-  const last = Math.max(state.activity?.createdAt ?? 0, state.lastStartSentAt)
-  if (state.pushToStartToken && Date.now() - last > RESTART_AFTER_MS) startActivity(restart.startedAt())
-}, 60 * 1000)
+// Set what the Lock Screen should show. Always reconciles, so a failed push is retried next call.
+export function show(display) {
+  state.display = display
+  save()
+  return enqueue(reconcile)
+}
+
+// Restart before the 8h cutoff and retry failed pushes, even when nothing else triggers.
+setInterval(() => enqueue(reconcile), 60 * 1000)
 
 const routes = {
   // app -> server
@@ -144,20 +178,18 @@ const routes = {
     state.pushToStartToken = b.token
     state.pushToStartTokenAt = Date.now()
     save()
+    return enqueue(reconcile)
   },
   'POST /activity-token': (b) => {
-    // createdAt (not the timer's startedAt) is the activity's age for the 8h restart
-    const createdAt = state.activity?.id === b.id ? state.activity.createdAt : Date.now()
-    state.activity = { id: b.id, token: b.token, createdAt, startedAt: b.startedAt == null ? null : b.startedAt * 1000 }
+    const known = state.activity?.id === b.id
+    if (!known) state.shown = null // its content is unknown; resend the display
+    state.activity = { id: b.id, token: b.token, createdAt: known ? state.activity.createdAt : Date.now() }
     save()
+    return enqueue(reconcile)
   },
   // you -> server
-  'POST /message': (b) => {
-    state.message = String(b.message)
-    save()
-    return updateActivity()
-  },
-  'POST /start': () => startActivity(restart.startedAt()), // in Toggl mode: the current timer, not "now"
+  'POST /message': (b) => show({ ...state.display, message: String(b.message) }),
+  'POST /start': () => enqueue(() => reconcile({ force: true })),
   'GET /state': () => state,
 }
 

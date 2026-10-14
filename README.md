@@ -64,6 +64,10 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
          -d '{"url_callback":"https://<public-host>/toggl","event_filters":[{"entity":"time_entry","action":"*"}],"enabled":true,"description":"LockActivity","secret":"<secret>"}' \
          https://api.track.toggl.com/webhooks/api/v1/subscriptions/<workspace_id>
 
+### Test
+
+    node server/test.mjs   # real server vs fake Toggl + fake APNs, ~2 s; doesn't touch state.json
+
 ### Hosting
 
 Needs an always-on process (8h restart timer, state file) and HTTP/2 to APNs, so serverless

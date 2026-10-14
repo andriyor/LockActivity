@@ -2,15 +2,13 @@
 // toggl-poll.mjs or toggl-webhook.mjs, which decide when to call queueSync().
 //
 // Env: TOGGL_API_TOKEN  from track.toggl.com/profile
-import { restart, save, startActivity, state, updateActivity } from './server.mjs'
+import { save, show, state } from './server.mjs'
 
 const { TOGGL_API_TOKEN } = process.env
 if (!TOGGL_API_TOKEN) {
   console.error('Set TOGGL_API_TOKEN')
   process.exit(1)
 }
-const IDLE = 'No running timer'
-restart.startedAt = () => state.toggl?.start ?? null
 
 let quotaResetAt = 0
 async function toggl(path) {
@@ -33,31 +31,17 @@ async function syncToggl() {
     : te.project_id === prev?.projectId
       ? prev.project
       : (await toggl(`/workspaces/${te.workspace_id}/projects/${te.project_id}`)).name
-  state.toggl = te && {
-    id: te.id,
-    start: Date.parse(te.start),
-    description: te.description || 'No description',
-    projectId: te.project_id,
-    project,
-  }
-  state.message = te ? state.toggl.description : IDLE
+  state.toggl = te && { projectId: te.project_id, project } // cache for the lookup above
   save()
-  // The activity stays up permanently; timer changes are updates, idle shows IDLE without a clock.
-  const startedAt = state.toggl?.start ?? null
-  const shown = JSON.stringify([state.message, project, startedAt])
-  if (!state.activity) {
-    // Start once per push-to-start token report (each app launch); lastStartSentAt keeps it from
-    // re-sending every poll when a start push landed but the app hasn't reported the activity yet.
-    if (state.lastStartSentAt >= (state.pushToStartTokenAt ?? 0)) return
-    state.shown = shown
-    return startActivity(startedAt)
-  }
-  if (shown === state.shown) return
-  state.shown = shown
-  return updateActivity(startedAt)
+  // The activity stays up permanently; with nothing running it shows a message and no clock.
+  return show(
+    te
+      ? { message: te.description || 'No description', project, startedAt: Date.parse(te.start) }
+      : { message: 'No running timer', project: null, startedAt: null },
+  )
 }
 
-// Serialized so overlapping triggers can't send two starts.
+// Serialized so overlapping triggers can't interleave their reads of state.toggl.
 let syncing = Promise.resolve()
 export const queueSync = () =>
   (syncing = syncing.then(syncToggl).catch((e) => console.error('Toggl sync:', e.message)))
