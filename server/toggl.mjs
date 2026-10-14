@@ -42,7 +42,10 @@ async function syncToggl() {
   save()
   if (!te) return state.activity && endActivity()
   state.message = state.toggl.description
-  if (te.id !== prev?.id) return startActivity(state.toggl.start)
+  // Also start a timer whose start push never went out (e.g. no push-to-start token yet).
+  // lastStartSentAt keeps it from re-sending every poll when the app just hasn't reported the activity.
+  const neverStarted = !state.activity && state.lastStartSentAt < state.toggl.start
+  if (te.id !== prev?.id || neverStarted) return startActivity(state.toggl.start)
   if (state.toggl.description !== prev.description || project !== prev.project) return updateActivity()
 }
 

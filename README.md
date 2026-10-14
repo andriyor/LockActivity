@@ -41,8 +41,10 @@ Put `TOGGL_API_TOKEN` (track.toggl.com/profile) in `server/.env`.
 
 ### Polling — `server/toggl-poll.mjs` (start here)
 
-Nothing has to be public. Changes appear within ~2.5 min: Toggl allows `/me` endpoints only
-30 requests/hour per user on every plan, so the server checks every 150 s (~24/h).
+Nothing has to be public. Changes appear within one poll interval, `TOGGL_POLL_SECONDS`
+(default 150 s, ~24 req/h). Toggl's docs say `/me` endpoints get 30 requests/hour, but the real
+quota can be higher — check `GET /api/v9/me/quota` (the `organization_id: null` entry).
+With 240/h (Starter) use 20.
 
     node --env-file=server/.env server/toggl-poll.mjs
 
