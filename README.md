@@ -156,17 +156,36 @@ Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so ser
 
 The app starts a local activity with its own text and restarts it when opened; no server, no Toggl.
 
+## Compared with other apps
+
+Timer changed in the **desktop browser**, iPhone locked, app closed. Tested by hand on an iPhone 17
+unless noted; "—" means not tested.
+
+| Case                                  | Toggl Lock (this repo)                              | Toggl Track iOS app (Oct 2026)  | Toggl Lockscreen Widget / Timery |
+| ------------------------------------- | --------------------------------------------------- | ------------------------------- | -------------------------------- |
+| Start a timer                         | ✅ within one poll (~20 s) or instant (webhook)     | ✅ activity appears             | ❌ not updated                   |
+| Stop the timer                        | ✅ shows "No running timer"                         | ❌ keeps counting the old timer | ❌ not updated                   |
+| Start a different timer               | ✅ updates in place, no Allow prompt                | ❌ still shows the old one      | ❌ not updated                   |
+| Edit description / project            | ✅ updates (`server/test.ts`)                       | —                               | —                                |
+| Nothing running                       | ✅ "No running timer", stays visible                | ❌ stale old timer stays        | —                                |
+| Timer longer than 8 h (iOS limit)     | ✅ re-created at 7.5 h (by design, not hand-tested) | —                               | —                                |
+| Needs your own server + Apple account | yes                                                 | no                              | no                               |
+
+So Toggl's app now push-starts its activity from the server side, but doesn't follow later changes;
+keeping the Lock Screen in sync with timers changed elsewhere is what this project adds.
+
 ## Why a server at all (research)
 
 - iOS suspends apps ~30 s after backgrounding; no long-lived connection or on-device polling.
   Background App Refresh runs when iOS decides (often hours apart).
 - The Live Activity view can't do networking, and `Activity.request` only works with the app in the
   foreground. Starting one from the background is only possible via APNs push-to-start.
-- Toggl Track's own iOS app shows a Live Activity only after the app is opened and syncs
-  ([community thread](https://community.toggl.com/t/dynamic-island-only-shows-timer-when-started-from-ios-app/1303)).
+- Toggl Track's own iOS app used to show a Live Activity only after the app was opened
+  ([community thread](https://community.toggl.com/t/dynamic-island-only-shows-timer-when-started-from-ios-app/1303));
+  by Oct 2026 it push-starts one, but doesn't follow stops or new timers (table above).
 - [Toggl Lockscreen Widget](https://apps.apple.com/ca/app/toggl-lockscreen-widget/id6756894639) and
-  [Timery](https://apps.apple.com/app/id1425368544): tested — neither updates its Live Activity when the
-  timer is changed in the desktop browser.
+  [Timery](https://apps.apple.com/app/id1425368544): neither updates its Live Activity when the timer is
+  changed in the desktop browser.
 - The [Toggl Focus API](https://engineering.toggl.com/docs/focus/) (the other Toggl product) has a
   `tracking/current` endpoint but no webhooks; Toggl Track has
   [webhooks](https://engineering.toggl.com/docs/track/webhooks_start/).
