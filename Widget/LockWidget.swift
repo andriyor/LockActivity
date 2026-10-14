@@ -11,9 +11,9 @@ struct LockLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: LockAttributes.self) { ctx in
             VStack(alignment: .leading, spacing: 4) {
-                Text(ctx.attributes.title).font(.headline)
+                Text(ctx.state.project ?? ctx.attributes.title).font(.headline)
                 Text(ctx.state.message).font(.title3)
-                Text(ctx.state.startedAt, style: .relative).font(.caption).opacity(0.7)
+                Text(ctx.state.startedAt, style: .timer).font(.title2.monospacedDigit())
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity, alignment: .leading)

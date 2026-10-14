@@ -8,3 +8,4 @@ App/LockActivity.entitlements
 # server runtime state and APNs keys
 server/state.json
 *.p8
+.idea

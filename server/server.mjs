@@ -1,5 +1,6 @@
 // Keeps a Live Activity on the Lock Screen by re-starting it via APNs push-to-start
 // before iOS's 8h limit. Zero dependencies: node >= 20.
+// Run directly for manual control, or via toggl-poll.mjs / toggl-webhook.mjs to mirror Toggl.
 //
 // Env:
 //   APNS_KEY_PATH  path to AuthKey_XXXX.p8
@@ -7,7 +8,7 @@
 //   APNS_TEAM_ID   team id
 //   BUNDLE_ID      default com.andriyor.LockActivity
 //   APNS_HOST      default api.sandbox.push.apple.com (debug builds); api.push.apple.com for TestFlight/App Store
-//   PORT           default 8787
+//   PORT           default 8787 (app + manual routes; keep on the LAN)
 import { createSign } from 'node:crypto'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -32,10 +33,10 @@ const STATE_FILE = new URL('./state.json', import.meta.url)
 const APPLE_EPOCH = 978307200
 
 // ponytail: single device, JSON file state; use a DB keyed by device when there's more than one user
-let state = existsSync(STATE_FILE)
+export const state = existsSync(STATE_FILE)
   ? JSON.parse(readFileSync(STATE_FILE, 'utf8'))
   : { pushToStartToken: null, activity: null, lastStartSentAt: 0, message: 'Hello from the server' }
-const save = () => writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+export const save = () => writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
 
 const key = readFileSync(APNS_KEY_PATH, 'utf8')
 let jwt = { token: '', iat: 0 }
@@ -63,6 +64,11 @@ function apns(deviceToken, aps) {
     })
     let status = 0
     let body = ''
+    req.on('error', (e) => {
+      client.close()
+      console.log(`APNs ${aps.event} -> ${e.message}`)
+      resolve({ status: 0, body: e.message }) // network failure must not crash the server
+    })
     req.on('response', (h) => (status = h[':status']))
     req.on('data', (c) => (body += c))
     req.on('end', () => {
@@ -75,13 +81,16 @@ function apns(deviceToken, aps) {
 }
 
 const nowSec = () => Math.floor(Date.now() / 1000)
-const contentState = (startedAtMs) => ({ message: state.message, startedAt: startedAtMs / 1000 - APPLE_EPOCH })
+const contentState = (startedAtMs) => ({
+  message: state.message,
+  project: state.toggl?.project,
+  startedAt: startedAtMs / 1000 - APPLE_EPOCH,
+})
 
-async function startActivity() {
+export async function startActivity(startedAt = Date.now()) {
   if (!state.pushToStartToken) return { status: 0, body: 'no push-to-start token yet; open the app once' }
-  if (state.activity) await apns(state.activity.token, { event: 'end', timestamp: nowSec(), 'dismissal-date': nowSec() })
-  const startedAt = Date.now()
-  state.lastStartSentAt = startedAt
+  if (state.activity) await endActivity()
+  state.lastStartSentAt = Date.now()
   save()
   return apns(state.pushToStartToken, {
     event: 'start',
@@ -95,7 +104,7 @@ async function startActivity() {
   })
 }
 
-async function updateActivity() {
+export async function updateActivity() {
   if (!state.activity) return startActivity()
   return apns(state.activity.token, {
     event: 'update',
@@ -104,11 +113,22 @@ async function updateActivity() {
   })
 }
 
+export async function endActivity() {
+  const { token } = state.activity
+  state.activity = null
+  save()
+  return apns(token, { event: 'end', timestamp: nowSec(), 'dismissal-date': nowSec() })
+}
+
+// Set by toggl.mjs: then the activity exists only while a Toggl timer runs.
+export const mode = { toggl: false }
+
 // Restart before the 8h cutoff. lastStartSentAt guards against retrying every minute
 // when a start push landed but the app never reported the new activity's token.
 setInterval(() => {
   const last = Math.max(state.activity?.startedAt ?? 0, state.lastStartSentAt)
-  if (state.pushToStartToken && Date.now() - last > RESTART_AFTER_MS) startActivity()
+  if (mode.toggl && !state.toggl) return // no timer running, nothing to show
+  if (state.pushToStartToken && Date.now() - last > RESTART_AFTER_MS) startActivity(state.toggl?.start)
 }, 60 * 1000)
 
 const routes = {
@@ -131,15 +151,19 @@ const routes = {
   'GET /state': () => state,
 }
 
-createServer(async (req, res) => {
-  const handler = routes[`${req.method} ${req.url}`]
-  if (!handler) return res.writeHead(404).end()
-  let raw = ''
-  for await (const c of req) raw += c
-  try {
-    const result = await handler(raw ? JSON.parse(raw) : {})
-    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result ?? { ok: true }))
-  } catch (e) {
-    res.writeHead(400).end(e.message)
-  }
-}).listen(Number(PORT), () => console.log(`listening on :${PORT}, APNs ${APNS_HOST}`))
+export function serve(port, table) {
+  createServer(async (req, res) => {
+    const handler = table[`${req.method} ${req.url}`]
+    if (!handler) return res.writeHead(404).end()
+    let raw = ''
+    for await (const c of req) raw += c
+    try {
+      const result = await handler(raw ? JSON.parse(raw) : {}, raw, req.headers)
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result ?? { ok: true }))
+    } catch (e) {
+      res.writeHead(400).end(e.message)
+    }
+  }).listen(Number(port), () => console.log(`listening on :${port}`))
+}
+console.log(`APNs ${APNS_HOST}`)
+serve(PORT, routes)

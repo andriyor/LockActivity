@@ -39,7 +39,9 @@ struct ContentView: View {
             if !status.isEmpty { Text(status).foregroundStyle(.secondary) }
         }
         .onChange(of: phase, initial: true) { _, p in
+            #if !PUSH // with push the server owns the activity (it mirrors Toggl)
             if p == .active { ensureRunning() }
+            #endif
         }
     }
 
@@ -73,7 +75,7 @@ struct ContentView: View {
 
     private func update() {
         guard let a = current else { return start() }
-        let state = LockAttributes.ContentState(message: message, startedAt: a.content.state.startedAt)
+        let state = LockAttributes.ContentState(message: message, project: a.content.state.project, startedAt: a.content.state.startedAt)
         Task { await a.update(.init(state: state, staleDate: a.content.staleDate)) }
         status = "Updated"
     }
