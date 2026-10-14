@@ -10,8 +10,8 @@ The elapsed time ticks on the phone, so pushes go out only when something change
 ## Layout
 
 - `ios/` — the iPhone app and its Live Activity widget (XcodeGen: `ios/project.yml`)
-- `server/` — the Node server that watches Toggl and sends APNs pushes (no dependencies)
-- root — this README and Prettier (`npm run format`) for the whole repo
+- `server/` — the Node server that watches Toggl and sends APNs pushes (no runtime dependencies;
+  `package.json` is only for Prettier and `npm test`)
 
 ## Setup
 
@@ -111,8 +111,8 @@ doesn't notice; it comes back at the next 7.5h restart or when you open the app.
 
     node server/test.mjs   # real server vs fake Toggl + fake APNs, ~2 s; doesn't touch state.json
 
-Formatting: `npm install` once, then `npm run format` (or `npm run format:check`). Prettier is the
-only dev dependency; the server itself needs no `npm install`.
+Formatting (server code and this README): in `server/`, `npm install` once, then `npm run format`
+(or `npm run format:check`). Prettier is the only dev dependency; running the server needs no `npm install`.
 
 ### Hosting
 

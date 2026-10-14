@@ -1,0 +1,13 @@
+{
+  "name": "toggl-lock",
+  "private": true,
+  "description": "Dev tooling only; the server itself has no runtime dependencies.",
+  "scripts": {
+    "format": "prettier --write . ../README.md",
+    "format:check": "prettier --check . ../README.md",
+    "test": "node test.mjs"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

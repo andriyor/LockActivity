@@ -1,4 +1,0 @@
-build/
-*.xcodeproj/
-.idea/
-server/state.json
