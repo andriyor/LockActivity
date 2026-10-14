@@ -40,7 +40,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.andriyor.LockActivity
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        SERVER_URL: http://LM-GY2D3NPRGW.local:8787
+        SERVER_URL: http://LM-GY2D3NPRGW.local:8790
   LockWidget:
     type: app-extension
     platform: iOS

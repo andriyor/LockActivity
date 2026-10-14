@@ -1,5 +1,5 @@
 // A minimal JSON router, and the app-facing routes.
-// Env: PORT  default 8787 (app + manual routes; keep on the LAN)
+// Env: PORT  default 8790 (app + manual routes; keep on the LAN)
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import { restart, setActivity, setAliveActivities, setPushToStartToken, show } from "./activity.ts";
 import { state } from "./state.ts";
@@ -38,7 +38,7 @@ export function serve(port: string, table: Record<string, Handler>) {
 
 // No auth: /state exposes push tokens. Never expose this port publicly.
 export const serveApp = () =>
-  serve(process.env.PORT || "8787", {
+  serve(process.env.PORT || "8790", {
     // app -> server
     "POST /push-to-start-token": (b) => setPushToStartToken(str(b, "token")),
     "POST /activity-token": (b) => setActivity(str(b, "id"), str(b, "token")),

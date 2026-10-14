@@ -66,7 +66,7 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 1. Pick a random secret and get your workspace id.
 2. Expose **only** port 8788 (it serves just the signed `POST /toggl`), e.g. `tailscale funnel 8788`
    (stable URL) or `cloudflared tunnel --url http://localhost:8788` (URL changes each run).
-   Port 8787 has no auth and `/state` holds push tokens — never expose it.
+   Port 8790 has no auth and `/state` holds push tokens — never expose it.
 3. Set `TOGGL_WEBHOOK_SECRET=<secret>` in `server/.env`, run `npm run start:webhook` in `server/`.
 4. Subscribe (the server answers Toggl's validation ping itself):
 
@@ -82,7 +82,7 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 | `server/toggl-poll.ts`, `server/toggl-webhook.ts` | entries: mirror Toggl, by polling or webhooks                                             |
 | `server/lib/activity.ts`                          | `show(display)` sets what should be on screen; `reconcile()` is the only code that pushes |
 | `server/lib/apns.ts`                              | APNs JWT + send a push                                                                    |
-| `server/lib/http.ts`                              | tiny JSON router + app routes on :8787                                                    |
+| `server/lib/http.ts`                              | tiny JSON router + app routes on :8790                                                    |
 | `server/lib/state.ts`                             | state + atomic save to `server/state.json`                                                |
 | `server/lib/toggl.ts`                             | reads the current Toggl entry (+ project name) and calls `show()`                         |
 | `server/test.ts`                                  | end-to-end test                                                                           |
@@ -100,9 +100,9 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 
 State lives in `server/state.json` (written atomically). Manual routes for poking at it:
 
-    curl localhost:8787/state                                   # tokens, activity, current display
-    curl -XPOST localhost:8787/start                            # re-create the activity now
-    curl -XPOST localhost:8787/message -d '{"message":"hi"}'    # change the text (no-Toggl mode)
+    curl localhost:8790/state                                   # tokens, activity, current display
+    curl -XPOST localhost:8790/start                            # re-create the activity now
+    curl -XPOST localhost:8790/message -d '{"message":"hi"}'    # change the text (no-Toggl mode)
 
 Running `node --env-file=server/.env server/main.ts` alone (no Toggl) keeps a plain activity
 showing that message.
@@ -136,7 +136,7 @@ Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so ser
 - Server → APNs needs no certificate of yours; the `.p8` key authenticates it. `APNS_HOST` must match
   the build: sandbox (default) for Xcode builds, `api.push.apple.com` for TestFlight/App Store.
 - iPhone → server: ATS only allows plain `http://` to `.local` names and IP addresses, so
-  `http://<mac>.local:8787` (same Wi-Fi) or `http://<tailscale-ip>:8787` (Tailscale on the phone,
+  `http://<mac>.local:8790` (same Wi-Fi) or `http://<tailscale-ip>:8790` (Tailscale on the phone,
   VPN On Demand so token reports never miss) work; a full domain needs HTTPS.
 
 ## Possible next steps
