@@ -114,6 +114,12 @@ doesn't notice; it comes back at the next 7.5h restart or when you open the app.
 Formatting (server code and this README): in `server/`, `npm install` once, then `npm run format`
 (or `npm run format:check`). Prettier is the only dev dependency; running the server needs no `npm install`.
 
+Swift (`ios/`) uses Apple's `swift-format` from the Xcode toolchain with its defaults (2 spaces,
+100 columns; `ios/project.yml` sets Xcode's indent to match):
+
+    xcrun swift-format format --in-place --recursive ios/App ios/Widget ios/Shared
+    xcrun swift-format lint --strict --recursive ios/App ios/Widget ios/Shared
+
 ### Hosting
 
 Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so serverless

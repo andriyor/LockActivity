@@ -4,6 +4,10 @@ include:
     enable: ${ENABLE_PUSH}
 options:
   bundleIdPrefix: com.andriyor
+  # match swift-format's defaults so Xcode doesn't fight the formatter
+  indentWidth: 2
+  tabWidth: 2
+  usesTabs: false
   deploymentTarget:
     iOS: "17.2"
 settings:
