@@ -1,8 +1,8 @@
-// Mirrors the running Toggl Track timer into the Live Activity. Imported by
-// toggl-poll.mjs or toggl-webhook.mjs, which decide when to call queueSync().
-//
+// Mirrors the running Toggl Track timer into the Live Activity. sync() reads Toggl and calls
+// show(); toggl-poll.mjs / toggl-webhook.mjs decide when to call it.
 // Env: TOGGL_API_TOKEN  from track.toggl.com/profile
-import { save, show, state } from "./server.mjs";
+import { show } from "./activity.mjs";
+import { save, state } from "./state.mjs";
 
 const { TOGGL_API_TOKEN } = process.env;
 if (!TOGGL_API_TOKEN) {
@@ -24,7 +24,7 @@ async function toggl(path) {
 }
 
 // The current entry is the source of truth, which also ignores teammates' entries.
-async function syncToggl() {
+async function syncOnce() {
   if (Date.now() < quotaResetAt) return; // out of hourly quota; calls would only fail
   const te = await toggl("/me/time_entries/current"); // null when nothing is running
   const prev = state.toggl;
@@ -46,6 +46,5 @@ async function syncToggl() {
 
 // Serialized so overlapping triggers can't interleave their reads of state.toggl.
 let syncing = Promise.resolve();
-export const queueSync = () =>
-  (syncing = syncing.then(syncToggl).catch((e) => console.error("Toggl sync:", e.message)));
-queueSync(); // catch up on anything that changed while the server was down
+export const sync = () =>
+  (syncing = syncing.then(syncOnce).catch((e) => console.error("Toggl sync:", e.message)));

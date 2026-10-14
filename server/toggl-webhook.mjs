@@ -1,10 +1,11 @@
-// Toggl mode 2: Toggl webhooks trigger a sync. Instant, but Toggl must reach WEBHOOK_PORT over public HTTPS.
-// Env: server.mjs + toggl.mjs, plus
+// Entry: mirror Toggl via webhooks. Instant, but Toggl must reach WEBHOOK_PORT over public HTTPS.
+// Env: see lib/*, plus
 //   TOGGL_WEBHOOK_SECRET  the secret given when creating the subscription
 //   WEBHOOK_PORT          default 8788, serves only POST /toggl; expose only this port
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { serve } from "./server.mjs";
-import { queueSync } from "./toggl.mjs";
+import { keepAlive } from "./lib/activity.mjs";
+import { serve, serveApp } from "./lib/http.mjs";
+import { sync } from "./lib/toggl.mjs";
 
 const { TOGGL_WEBHOOK_SECRET, WEBHOOK_PORT = "8788" } = process.env;
 if (!TOGGL_WEBHOOK_SECRET) {
@@ -19,11 +20,14 @@ function verify(raw, headers) {
     throw new Error("bad signature");
 }
 
+keepAlive();
+serveApp();
+sync(); // catch up on anything that changed while the server was down
 // Separate port so exposing the webhook doesn't expose /state (push tokens) or /start.
 serve(WEBHOOK_PORT, {
   "POST /toggl": (b, raw, headers) => {
     verify(raw, headers);
     if (b.validation_code) return { validation_code: b.validation_code }; // subscription validation ping
-    if (b.payload !== "ping") queueSync(); // reply now; Toggl doesn't need to wait for APNs
+    if (b.payload !== "ping") sync(); // reply now; Toggl doesn't need to wait for APNs
   },
 });

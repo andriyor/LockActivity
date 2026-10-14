@@ -38,7 +38,7 @@ the Lock Screen asks Allow / Don't Allow — tap Allow. `SERVER_URL` in `project
 
 ## Two ways to watch Toggl
 
-Both read `/me/time_entries/current` (`server/toggl.mjs`); they differ in _when_.
+Both read `/me/time_entries/current` (`server/lib/toggl.mjs`); they differ in _when_.
 
 ### Polling — `server/toggl-poll.mjs` (start here)
 
@@ -66,12 +66,16 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 
 ## How the server works
 
-| File                                                | Role                                                                                                                        |
-| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `server/server.mjs`                                 | APNs, state, app routes on :8787. `show(display)` sets what should be on screen; `reconcile()` is the only code that pushes |
-| `server/toggl.mjs`                                  | reads the current Toggl entry (+ project name) and calls `show()`                                                           |
-| `server/toggl-poll.mjs`, `server/toggl-webhook.mjs` | decide when to read Toggl                                                                                                   |
-| `server/test.mjs`                                   | end-to-end test                                                                                                             |
+| File                                                | Role                                                                                      |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `server/main.mjs`                                   | entry: plain activity, no Toggl                                                           |
+| `server/toggl-poll.mjs`, `server/toggl-webhook.mjs` | entries: mirror Toggl, by polling or webhooks                                             |
+| `server/lib/activity.mjs`                           | `show(display)` sets what should be on screen; `reconcile()` is the only code that pushes |
+| `server/lib/apns.mjs`                               | APNs JWT + send a push                                                                    |
+| `server/lib/http.mjs`                               | tiny JSON router + app routes on :8787                                                    |
+| `server/lib/state.mjs`                              | state + atomic save to `server/state.json`                                                |
+| `server/lib/toggl.mjs`                              | reads the current Toggl entry (+ project name) and calls `show()`                         |
+| `server/test.mjs`                                   | end-to-end test                                                                           |
 
 `reconcile()` runs one at a time (Toggl syncs, a 1-minute tick and the routes share a queue) and:
 
@@ -89,7 +93,7 @@ State lives in `server/state.json` (written atomically). Manual routes for pokin
     curl -XPOST localhost:8787/start                            # re-create the activity now
     curl -XPOST localhost:8787/message -d '{"message":"hi"}'    # change the text (no-Toggl mode)
 
-Running `node --env-file=server/.env server/server.mjs` alone (no Toggl) keeps a plain activity
+Running `node --env-file=server/.env server/main.mjs` alone (no Toggl) keeps a plain activity
 showing that message.
 
 Known gap: if you swipe the activity away, APNs may keep accepting updates for it, so the server
