@@ -45,6 +45,7 @@ async function start() {
     alert: { title: TITLE, body: state.display.message },
   });
   state.shown = res.status === 200 ? shown : null;
+  if (res.status === 200) state.startWanted = false; // a failed start is retried on the next call
   save();
   return res;
 }
@@ -57,7 +58,7 @@ async function reconcile({ force = false } = {}) {
   const now = Date.now();
   const startRetryDue = now - state.lastStartSentAt > RETRY_START_MS;
   const needStart = !state.activity
-    ? state.pushToStartTokenAt > state.lastStartSentAt || startRetryDue
+    ? state.startWanted || startRetryDue
     : now - state.activity.createdAt > RESTART_AFTER_MS && startRetryDue;
   if (force || needStart) return start();
   const shown = JSON.stringify(state.display);
@@ -85,10 +86,9 @@ export function show(display) {
   return enqueue(reconcile);
 }
 
-// The app reports its push-to-start token on every launch.
+// The app reports its push-to-start token on every launch (it may arrive after /activities).
 export function setPushToStartToken(token) {
   state.pushToStartToken = token;
-  state.pushToStartTokenAt = Date.now();
   save();
   return enqueue(reconcile);
 }
@@ -98,6 +98,18 @@ export function setActivity(id, token) {
   const known = state.activity?.id === id;
   if (!known) state.shown = null; // its content is unknown; resend the display
   state.activity = { id, token, createdAt: known ? state.activity.createdAt : Date.now() };
+  save();
+  return enqueue(reconcile);
+}
+
+// On launch the app lists the activities still alive on the phone. If ours isn't among them
+// (first launch, dismissed, ended by iOS, app reinstalled) a start is wanted. APNs may still
+// accept updates for a gone activity, so this report is the only way to notice.
+export function setAliveActivities(ids) {
+  if (state.activity && ids.includes(state.activity.id)) return;
+  if (state.activity) console.log(`activity ${state.activity.id} is gone on the phone`);
+  state.activity = null;
+  state.startWanted = true; // one flag, so this report and the token report can't both start
   save();
   return enqueue(reconcile);
 }

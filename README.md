@@ -40,7 +40,8 @@ Needs a paid Apple Developer account (push notifications) and Node ≥ 20.
 
    (`xcrun devicectl list devices` shows the UDID.)
 
-On launch the app sends its push token to the server, which starts the activity. The first time,
+On launch the app sends the server its push token and the activities still alive on the phone; if
+the server's activity isn't among them (first launch, dismissed, reinstall) it starts one. The first time,
 the Lock Screen asks Allow / Don't Allow — tap Allow. `SERVER_URL` in `ios/project.yml` is this Mac's
 `.local` address; change it if the server runs elsewhere.
 
@@ -87,8 +88,9 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 
 `reconcile()` runs one at a time (Toggl syncs, a 1-minute tick and the routes share a queue) and:
 
-- **starts** an activity (push-to-start) when the app reports its token and none exists, or when the
-  current one nears iOS's 8h limit (re-created at 7.5h);
+- **starts** an activity (push-to-start) when the app's launch report (`POST /activities`) says the
+  server's activity is gone — exactly once per report, retried if APNs fails — or when the current
+  one nears iOS's 8h limit (re-created at 7.5h);
 - **updates** it when the display changed; an update counts only once APNs returns 200, so a failed
   push is retried on the next sync or tick;
 - **starts over** when APNs says the activity token is dead (410 / `Unregistered`);
@@ -104,8 +106,9 @@ State lives in `server/state.json` (written atomically). Manual routes for pokin
 Running `node --env-file=server/.env server/main.mjs` alone (no Toggl) keeps a plain activity
 showing that message.
 
-Known gap: if you swipe the activity away, APNs may keep accepting updates for it, so the server
-doesn't notice; it comes back at the next 7.5h restart or when you open the app.
+Known gap: if you swipe the activity away (or reinstall the app), APNs may keep accepting updates for
+it, so the server can't tell while the app stays closed; it comes back when you next open the app
+(launch report) or at the next 7.5h restart.
 
 ### Test
 
@@ -142,8 +145,8 @@ Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so ser
   `server/*.mjs` → `.ts`, type `Display`/state/APNs results, add `typescript` as a dev dependency for
   `tsc --noEmit` (`erasableSyntaxOnly`, `verbatimModuleSyntax`). Worth it if the server grows (e.g. multiple users).
 - **Detect a swiped-away activity**: the app could report `activityStateUpdates` (`.dismissed`/`.ended`)
-  so the server re-creates it sooner than the next 7.5h restart — only while iOS lets the app run,
-  so not guaranteed.
+  so the server re-creates it without waiting for the next app launch — only while iOS lets the app
+  run, so not guaranteed.
 
 ## Without push (free Apple team)
 

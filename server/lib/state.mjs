@@ -8,7 +8,7 @@ const { STATE_FILE = fileURLToPath(new URL("../state.json", import.meta.url)) } 
 // ponytail: single device, JSON file state; use a DB keyed by device when there's more than one user
 export const state = {
   pushToStartToken: null,
-  pushToStartTokenAt: 0, // last time the app reported it (each launch)
+  startWanted: false, // set when the app reports its activity is gone; one start push clears it
   activity: null, // { id, token, createdAt } as reported by the app
   lastStartSentAt: 0,
   display: { message: "Hello from the server", project: null, startedAt: null }, // what should be on screen

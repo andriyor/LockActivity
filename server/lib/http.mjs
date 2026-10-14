@@ -1,7 +1,13 @@
 // A minimal JSON router, and the app-facing routes.
 // Env: PORT  default 8787 (app + manual routes; keep on the LAN)
 import { createServer } from "node:http";
-import { restart, setActivity, setPushToStartToken, show } from "./activity.mjs";
+import {
+  restart,
+  setActivity,
+  setAliveActivities,
+  setPushToStartToken,
+  show,
+} from "./activity.mjs";
 import { state } from "./state.mjs";
 
 // table: { "METHOD /path": (body, raw, headers) => result }; a thrown error becomes a 400.
@@ -28,6 +34,7 @@ export const serveApp = () =>
     // app -> server
     "POST /push-to-start-token": (b) => setPushToStartToken(b.token),
     "POST /activity-token": (b) => setActivity(b.id, b.token),
+    "POST /activities": (b) => setAliveActivities(Array.isArray(b.ids) ? b.ids : []),
     // you -> server
     "POST /message": (b) => show({ ...state.display, message: String(b.message) }),
     "POST /start": () => restart(),

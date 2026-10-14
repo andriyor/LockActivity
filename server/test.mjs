@@ -97,8 +97,11 @@ try {
   await s.waitFor("server", () => s.lines.some((l) => l.includes("listening")));
   const last = () => s.pushes().at(-1);
 
+  const starts = () => s.pushes().filter((p) => p.event === "start").length;
+  // first launch: the app reports no alive activities, then its token → exactly one start
+  await s.post("/activities", { ids: [] });
   await s.post("/push-to-start-token", { token: "ptst" });
-  await s.waitFor("start on token report", () => last()?.event === "start");
+  await s.waitFor("start on first launch", () => last()?.event === "start");
   assert.deepEqual(last().content, { message: "No running timer", project: null, startedAt: null });
 
   await s.post("/activity-token", { id: "a", token: "act" });
@@ -128,6 +131,20 @@ try {
 
   await s.post("/activity-token", { id: "b", token: "dead" });
   await s.waitFor("start after dead token", () => last()?.event === "start");
+
+  // app launch reports which activities are alive; ours missing (e.g. after a reinstall) → new start
+  await s.post("/activity-token", { id: "c", token: "act2" });
+  await s.waitFor("update to activity c", () => last()?.token === "act2");
+  await s.post("/activities", { ids: ["c"] });
+  const before = starts();
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(starts(), before, "an alive activity is left alone");
+  // relaunch with our activity gone; both launch reports arrive, but only one start goes out
+  await s.post("/activities", { ids: [] });
+  await s.post("/push-to-start-token", { token: "ptst" });
+  await s.waitFor("start after activity is gone", () => starts() === before + 1);
+  await new Promise((r) => setTimeout(r, 1000)); // a few polls
+  assert.equal(starts(), before + 1, "exactly one start per launch");
   s.child.kill();
 
   // --- webhook mode: signature check and validation handshake

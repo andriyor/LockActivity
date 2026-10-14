@@ -24,6 +24,11 @@
         }
       }
       for activity in Activity<LockAttributes>.activities { track(activity) }
+      // Lets the server replace its activity if it's gone (dismissed, ended by iOS, reinstall).
+      let alive = Activity<LockAttributes>.activities
+        .filter { $0.activityState == .active || $0.activityState == .stale }
+        .map(\.id)
+      Task { await post("activities", ["ids": alive]) }
     }
 
     static func track(_ activity: Activity<LockAttributes>) {
