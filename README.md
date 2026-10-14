@@ -7,11 +7,17 @@ desktop browser. With nothing running it shows "No running timer".
 The activity stays up permanently: a small Node server watches Toggl and sends APNs pushes.
 The elapsed time ticks on the phone, so pushes go out only when something changes.
 
+## Layout
+
+- `ios/` — the iPhone app and its Live Activity widget (XcodeGen: `ios/project.yml`)
+- `server/` — the Node server that watches Toggl and sends APNs pushes (no dependencies)
+- root — this README and Prettier (`npm run format`) for the whole repo
+
 ## Setup
 
 Needs a paid Apple Developer account (push notifications) and Node ≥ 20.
 
-1. Xcode → Settings → Accounts: add the paid account; put its team id in `project.yml` (`DEVELOPMENT_TEAM`).
+1. Xcode → Settings → Accounts: add the paid account; put its team id in `ios/project.yml` (`DEVELOPMENT_TEAM`).
 2. developer.apple.com → Certificates, Identifiers & Profiles → Keys → `+` → enable
    _Apple Push Notifications service (APNs)_ → download `AuthKey_<KEY_ID>.p8` (only once).
    The team id is under Membership details.
@@ -22,8 +28,10 @@ Needs a paid Apple Developer account (push notifications) and Node ≥ 20.
        node --env-file=server/.env server/toggl-poll.mjs
 
 5. Build and run the app on the iPhone (same Wi-Fi as the Mac), allow Local Network access.
-   In Xcode: `ENABLE_PUSH=true xcodegen generate && open LockActivity.xcodeproj`, then Run. Or from the terminal:
+   In Xcode: `cd ios && ENABLE_PUSH=true xcodegen generate && open LockActivity.xcodeproj`, then Run.
+   Or from the terminal:
 
+       cd ios
        ENABLE_PUSH=true xcodegen generate
        xcodebuild -project LockActivity.xcodeproj -scheme LockActivity -destination 'id=<device-udid>' \
          -derivedDataPath build -allowProvisioningUpdates build
@@ -33,7 +41,7 @@ Needs a paid Apple Developer account (push notifications) and Node ≥ 20.
    (`xcrun devicectl list devices` shows the UDID.)
 
 On launch the app sends its push token to the server, which starts the activity. The first time,
-the Lock Screen asks Allow / Don't Allow — tap Allow. `SERVER_URL` in `project.yml` is this Mac's
+the Lock Screen asks Allow / Don't Allow — tap Allow. `SERVER_URL` in `ios/project.yml` is this Mac's
 `.local` address; change it if the server runs elsewhere.
 
 ## Two ways to watch Toggl
@@ -133,7 +141,7 @@ Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so ser
 
 ## Without push (free Apple team)
 
-    xcodegen generate && open LockActivity.xcodeproj
+    cd ios && xcodegen generate && open LockActivity.xcodeproj
 
 The app starts a local activity with its own text and restarts it when opened; no server, no Toggl.
 
