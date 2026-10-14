@@ -1,51 +1,51 @@
-# LockActivity
+# Toggl Lock
 
-Live Activity on the Lock Screen. The app restarts it when opened; the server restarts it
-every ~7.5h via APNs push-to-start so it stays without opening the app.
+Your running [Toggl Track](https://track.toggl.com) timer as a Live Activity on the iPhone Lock Screen
+(and Always-On Display), even when the timer is started or stopped on another device, e.g. the
+desktop browser. With nothing running it shows "No running timer".
 
-## Free team (no push)
+The activity stays up permanently: a small Node server watches Toggl and sends APNs pushes.
+The elapsed time ticks on the phone, so pushes go out only when something changes.
 
-    xcodegen generate && open LockActivity.xcodeproj
+## Setup
 
-## With server (paid Apple Developer account)
+Needs a paid Apple Developer account (push notifications) and Node ≥ 20.
 
-1. Xcode → Settings → Accounts: add the paid account. Put its team id in `project.yml` (`DEVELOPMENT_TEAM`).
-2. developer.apple.com → Keys → `+` → enable *Apple Push Notifications service (APNs)* → download `AuthKey_XXXX.p8`. Note the Key ID and Team ID.
-3. `cp server/.env.example server/.env` and fill in the APNs values (`.env` is gitignored).
-   Start the server (Mac and iPhone on the same Wi-Fi):
+1. Xcode → Settings → Accounts: add the paid account; put its team id in `project.yml` (`DEVELOPMENT_TEAM`).
+2. developer.apple.com → Certificates, Identifiers & Profiles → Keys → `+` → enable
+   *Apple Push Notifications service (APNs)* → download `AuthKey_<KEY_ID>.p8` (only once).
+   The team id is under Membership details.
+3. `cp server/.env.example server/.env` and fill it in (`.env` and `*.p8` are gitignored):
+   APNs key path/id/team, and `TOGGL_API_TOKEN` from track.toggl.com/profile.
+4. Start the server (see the two modes below), e.g.
 
-       node --env-file=server/.env server/server.mjs
+       node --env-file=server/.env server/toggl-poll.mjs
 
-4. Build the app with push, run on the iPhone, allow Local Network access:
+5. Build and run the app on the iPhone (same Wi-Fi as the Mac), allow Local Network access.
+   In Xcode: `ENABLE_PUSH=true xcodegen generate && open LockActivity.xcodeproj`, then Run. Or from the terminal:
 
-       ENABLE_PUSH=true xcodegen generate && open LockActivity.xcodeproj
+       ENABLE_PUSH=true xcodegen generate
+       xcodebuild -project LockActivity.xcodeproj -scheme LockActivity -destination 'id=<device-udid>' \
+         -derivedDataPath build -allowProvisioningUpdates build
+       xcrun devicectl device install app --device <device-udid> build/Build/Products/Debug-iphoneos/LockActivity.app
+       xcrun devicectl device process launch --device <device-udid> com.andriyor.LockActivity
 
-5. Try it (with the app closed):
+   (`xcrun devicectl list devices` shows the UDID.)
 
-       curl -XPOST localhost:8787/start                               # push-to-start a new activity
-       curl -XPOST localhost:8787/message -d '{"message":"hi"}'       # update it
-       curl localhost:8787/state
+On launch the app sends its push token to the server, which starts the activity. The first time,
+the Lock Screen asks Allow / Don't Allow — tap Allow. `SERVER_URL` in `project.yml` is this Mac's
+`.local` address; change it if the server runs elsewhere.
 
-The first server-started activity shows Allow / Don't Allow on the Lock Screen; tap Allow once.
+## Two ways to watch Toggl
 
-`SERVER_URL` in `project.yml` is this Mac's `.local` address; change it if you host the server elsewhere.
-
-## Mirror the running Toggl Track timer
-
-The activity stays on the Lock Screen permanently. While a Toggl timer runs (started from any
-device, e.g. the desktop browser) it shows project, description and elapsed time; otherwise
-"No running timer". Timer changes are update pushes, so no Allow prompt per timer. The elapsed
-time ticks on-device (also in Always-On), so pushes are sent only when something changes.
-
-Both modes read `/me/time_entries/current` (code in `server/toggl.mjs`); they differ in *when*.
-Put `TOGGL_API_TOKEN` (track.toggl.com/profile) in `server/.env`.
+Both read `/me/time_entries/current` (`server/toggl.mjs`); they differ in *when*.
 
 ### Polling — `server/toggl-poll.mjs` (start here)
 
-Nothing has to be public. Changes appear within one poll interval, `TOGGL_POLL_SECONDS`
-(default 150 s, ~24 req/h). Toggl's docs say `/me` endpoints get 30 requests/hour, but the real
-quota can be higher — check `GET /api/v9/me/quota` (the `organization_id: null` entry).
-With 240/h (Starter) use 20.
+Nothing has to be public. Changes appear within `TOGGL_POLL_SECONDS` (default 150 s, ~24 req/h).
+Toggl's docs say `/me` endpoints get 30 requests/hour, but the real quota can be higher — check
+`GET /api/v9/me/quota` (the `organization_id: null` entry). With 240/h (Starter) use 20.
+When the quota runs out the server pauses until it resets.
 
     node --env-file=server/.env server/toggl-poll.mjs
 
@@ -64,19 +64,57 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
          -d '{"url_callback":"https://<public-host>/toggl","event_filters":[{"entity":"time_entry","action":"*"}],"enabled":true,"description":"LockActivity","secret":"<secret>"}' \
          https://api.track.toggl.com/webhooks/api/v1/subscriptions/<workspace_id>
 
+## How the server works
+
+| File | Role |
+|---|---|
+| `server/server.mjs` | APNs, state, app routes on :8787. `show(display)` sets what should be on screen; `reconcile()` is the only code that pushes |
+| `server/toggl.mjs` | reads the current Toggl entry (+ project name) and calls `show()` |
+| `server/toggl-poll.mjs`, `server/toggl-webhook.mjs` | decide when to read Toggl |
+| `server/test.mjs` | end-to-end test |
+
+`reconcile()` runs one at a time (Toggl syncs, a 1-minute tick and the routes share a queue) and:
+
+- **starts** an activity (push-to-start) when the app reports its token and none exists, or when the
+  current one nears iOS's 8h limit (re-created at 7.5h);
+- **updates** it when the display changed; an update counts only once APNs returns 200, so a failed
+  push is retried on the next sync or tick;
+- **starts over** when APNs says the activity token is dead (410 / `Unregistered`);
+- retries a start whose activity the phone never reported (e.g. it was off the server's network)
+  after an hour, so it doesn't keep re-alerting.
+
+State lives in `server/state.json` (written atomically). Manual routes for poking at it:
+
+    curl localhost:8787/state                                   # tokens, activity, current display
+    curl -XPOST localhost:8787/start                            # re-create the activity now
+    curl -XPOST localhost:8787/message -d '{"message":"hi"}'    # change the text (no-Toggl mode)
+
+Running `node --env-file=server/.env server/server.mjs` alone (no Toggl) keeps a plain activity
+showing that message.
+
+Known gap: if you swipe the activity away, APNs may keep accepting updates for it, so the server
+doesn't notice; it comes back at the next 7.5h restart or when you open the app.
+
 ### Test
 
     node server/test.mjs   # real server vs fake Toggl + fake APNs, ~2 s; doesn't touch state.json
 
 ### Hosting
 
-Needs an always-on process (8h restart timer, state file) and HTTP/2 to APNs, so serverless
+Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so serverless
 (Workers, Vercel) doesn't fit. Mac (stops when asleep), Raspberry Pi or a small VPS all work.
 
-- Server → APNs needs no certificate of yours; the `.p8` key authenticates it.
+- Server → APNs needs no certificate of yours; the `.p8` key authenticates it. `APNS_HOST` must match
+  the build: sandbox (default) for Xcode builds, `api.push.apple.com` for TestFlight/App Store.
 - iPhone → server: ATS only allows plain `http://` to `.local` names and IP addresses, so
   `http://<mac>.local:8787` (same Wi-Fi) or `http://<tailscale-ip>:8787` (Tailscale on the phone,
   VPN On Demand so token reports never miss) work; a full domain needs HTTPS.
+
+## Without push (free Apple team)
+
+    xcodegen generate && open LockActivity.xcodeproj
+
+The app starts a local activity with its own text and restarts it when opened; no server, no Toggl.
 
 ## Why a server at all (research)
 
