@@ -14,7 +14,13 @@ enum PushSync {
         }
         Task {
             // Includes activities the server started via push-to-start.
-            for await activity in Activity<LockAttributes>.activityUpdates { track(activity) }
+            for await activity in Activity<LockAttributes>.activityUpdates {
+                // The server tracks one activity; end leftovers so its end push clears the Lock Screen.
+                for old in Activity<LockAttributes>.activities where old.id != activity.id {
+                    await old.end(nil, dismissalPolicy: .immediate)
+                }
+                track(activity)
+            }
         }
         for activity in Activity<LockAttributes>.activities { track(activity) }
     }

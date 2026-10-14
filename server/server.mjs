@@ -114,10 +114,16 @@ export async function updateActivity() {
 }
 
 export async function endActivity() {
-  const { token } = state.activity
+  const { token, startedAt } = state.activity
   state.activity = null
   save()
-  return apns(token, { event: 'end', timestamp: nowSec(), 'dismissal-date': nowSec() })
+  // Apple's end payload carries the final content-state; APNs returns 200 either way, so don't rely on omitting it
+  return apns(token, {
+    event: 'end',
+    timestamp: nowSec(),
+    'content-state': contentState(startedAt),
+    'dismissal-date': nowSec(),
+  })
 }
 
 // Set by toggl.mjs: then the activity exists only while a Toggl timer runs.
