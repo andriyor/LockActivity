@@ -11,9 +11,10 @@ every ~7.5h via APNs push-to-start so it stays without opening the app.
 
 1. Xcode → Settings → Accounts: add the paid account. Put its team id in `project.yml` (`DEVELOPMENT_TEAM`).
 2. developer.apple.com → Keys → `+` → enable *Apple Push Notifications service (APNs)* → download `AuthKey_XXXX.p8`. Note the Key ID and Team ID.
-3. Start the server (Mac and iPhone on the same Wi-Fi):
+3. `cp server/.env.example server/.env` and fill in the APNs values (`.env` is gitignored).
+   Start the server (Mac and iPhone on the same Wi-Fi):
 
-       APNS_KEY_PATH=~/AuthKey_XXXX.p8 APNS_KEY_ID=XXXX APNS_TEAM_ID=YYYY node server/server.mjs
+       node --env-file=server/.env server/server.mjs
 
 4. Build the app with push, run on the iPhone, allow Local Network access:
 
@@ -36,14 +37,14 @@ shows project, description and elapsed time, and ends when the timer stops. The 
 ticks on-device (also in Always-On), so pushes are sent only when something changes.
 
 Both modes read `/me/time_entries/current` (code in `server/toggl.mjs`); they differ in *when*.
-Get `TOGGL_API_TOKEN` from track.toggl.com/profile.
+Put `TOGGL_API_TOKEN` (track.toggl.com/profile) in `server/.env`.
 
 ### Polling — `server/toggl-poll.mjs` (start here)
 
 Nothing has to be public. Changes appear within ~2.5 min: Toggl allows `/me` endpoints only
 30 requests/hour per user on every plan, so the server checks every 150 s (~24/h).
 
-    APNS_KEY_PATH=... APNS_KEY_ID=... APNS_TEAM_ID=... TOGGL_API_TOKEN=... node server/toggl-poll.mjs
+    node --env-file=server/.env server/toggl-poll.mjs
 
 ### Webhooks — `server/toggl-webhook.mjs` (instant)
 
@@ -53,7 +54,7 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 2. Expose **only** port 8788 (it serves just the signed `POST /toggl`), e.g. `tailscale funnel 8788`
    (stable URL) or `cloudflared tunnel --url http://localhost:8788` (URL changes each run).
    Port 8787 has no auth and `/state` holds push tokens — never expose it.
-3. Start: same env as polling plus `TOGGL_WEBHOOK_SECRET=<secret>`, run `node server/toggl-webhook.mjs`.
+3. Set `TOGGL_WEBHOOK_SECRET=<secret>` in `server/.env`, run `node --env-file=server/.env server/toggl-webhook.mjs`.
 4. Subscribe (the server answers Toggl's validation ping itself):
 
        curl -u $TOGGL_API_TOKEN:api_token -H 'Content-Type: application/json' \

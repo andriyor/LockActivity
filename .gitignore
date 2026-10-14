@@ -9,3 +9,4 @@ App/LockActivity.entitlements
 server/state.json
 *.p8
 .idea
+.env
