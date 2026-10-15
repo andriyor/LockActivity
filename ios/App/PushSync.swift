@@ -6,6 +6,8 @@
   enum PushSync {
     static let server = URL(
       string: Bundle.main.object(forInfoDictionaryKey: "ServerURL") as! String)!
+    /// Sent as a bearer token; the server checks it when its APP_SECRET is set.
+    static let secret = Bundle.main.object(forInfoDictionaryKey: "AppSecret") as? String ?? ""
 
     static func start() {
       Task {
@@ -49,6 +51,7 @@
       var req = URLRequest(url: server.appending(path: path))
       req.httpMethod = "POST"
       req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      if !secret.isEmpty { req.setValue("Bearer \(secret)", forHTTPHeaderField: "Authorization") }
       req.httpBody = try? JSONSerialization.data(withJSONObject: body)
       do { _ = try await URLSession.shared.data(for: req) } catch {
         print("PushSync \(path): \(error)")

@@ -8,3 +8,10 @@ targets:
     settings:
       base:
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) PUSH
+    # APP_SECRET (server/.env) lives in the gitignored Secrets.xcconfig: this repo is public
+    configFiles:
+      Debug: Secrets.xcconfig
+      Release: Secrets.xcconfig
+    info:
+      properties:
+        AppSecret: $(APP_SECRET)

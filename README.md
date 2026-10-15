@@ -23,7 +23,10 @@ server's TypeScript directly (type stripping) — no build step, no `npm install
    _Apple Push Notifications service (APNs)_ → download `AuthKey_<KEY_ID>.p8` (only once).
    The team id is under Membership details.
 3. `cp server/.env.example server/.env` and fill it in (`.env` and `*.p8` are gitignored):
-   APNs key path/id/team, and `TOGGL_API_TOKEN` from track.toggl.com/profile.
+   APNs key path/id/team, and `TOGGL_API_TOKEN` from track.toggl.com/profile. Optionally
+   `APP_SECRET` (`openssl rand -hex 32`), required once the server is reachable from outside the LAN;
+   put the same value in `ios/Secrets.xcconfig` (`cp ios/Secrets.xcconfig.example ios/Secrets.xcconfig`,
+   gitignored — the app sends it as `Authorization: Bearer …`). Leave both empty on a LAN-only setup.
 4. Start the server (see the two modes below), e.g.
 
        cd server && npm start   # = node --env-file=.env toggl-poll.ts; needs no npm install
@@ -43,8 +46,9 @@ server's TypeScript directly (type stripping) — no build step, no `npm install
 
 On launch the app sends the server its push token and the activities still alive on the phone; if
 the server's activity isn't among them (first launch, dismissed, reinstall) it starts one. The first time,
-the Lock Screen asks Allow / Don't Allow — tap Allow. `SERVER_URL` in `ios/project.yml` is this Mac's
-`.local` address; change it if the server runs elsewhere.
+the Lock Screen asks Allow / Don't Allow — tap Allow. `SERVER_URL` in `ios/project.yml` is where the
+app reports (mine: `https://toggl.oreh.uk`, see Hosting); for a LAN-only setup use this Mac's
+`.local` address, e.g. `http://<mac>.local:8790`.
 
 ## Two ways to watch Toggl
 
@@ -66,7 +70,7 @@ Toggl calls the server on every time-entry change. Needs a public HTTPS URL.
 1. Pick a random secret and get your workspace id.
 2. Expose **only** port 8788 (it serves just the signed `POST /toggl`), e.g. `tailscale funnel 8788`
    (stable URL) or `cloudflared tunnel --url http://localhost:8788` (URL changes each run).
-   Port 8790 has no auth and `/state` holds push tokens — never expose it.
+   Port 8790 holds push tokens in `/state` — expose it only with `APP_SECRET` set (see Hosting).
 3. Set `TOGGL_WEBHOOK_SECRET=<secret>` in `server/.env`, run `npm run start:webhook` in `server/`.
 4. Subscribe (the server answers Toggl's validation ping itself):
 
@@ -104,6 +108,8 @@ State lives in `server/state.json` (written atomically). Manual routes for pokin
     curl -XPOST localhost:8790/start                            # re-create the activity now
     curl -XPOST localhost:8790/message -d '{"message":"hi"}'    # change the text (no-Toggl mode)
 
+With `APP_SECRET` set, add `-H "Authorization: Bearer $APP_SECRET"` to each.
+
 Running `node --env-file=server/.env server/main.ts` alone (no Toggl) keeps a plain activity
 showing that message.
 
@@ -138,6 +144,9 @@ Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so ser
 - iPhone → server: ATS only allows plain `http://` to `.local` names and IP addresses, so
   `http://<mac>.local:8790` (same Wi-Fi) or `http://<tailscale-ip>:8790` (Tailscale on the phone,
   VPN On Demand so token reports never miss) work; a full domain needs HTTPS.
+- Outside the LAN without a VPN: a Cloudflare Tunnel hostname (e.g. `https://toggl.oreh.uk` →
+  `http://localhost:8790`) gives HTTPS; set `APP_SECRET` first, since the routes are otherwise open.
+  Only the app's reports need this path — pushes reach the phone through APNs on any network.
 - Docker: `cd server && docker compose up -d` reads `server/.env`, mounts the key from
   `APNS_KEY_PATH` and keeps the state in a volume (not `server/state.json`, so the phone's tokens
   are re-sent on the next app launch). Webhook mode: see the comment in `server/compose.yaml`.

@@ -1,5 +1,9 @@
 // A minimal JSON router, and the app-facing routes.
-// Env: PORT  default 8790 (app + manual routes; keep on the LAN)
+// Env:
+//   PORT        default 8790 (app + manual routes)
+//   APP_SECRET  if set, these routes need "Authorization: Bearer <APP_SECRET>"; set it before
+//               exposing the port beyond the LAN (e.g. a Cloudflare Tunnel hostname)
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingHttpHeaders } from "node:http";
 import { restart, setActivity, setAliveActivities, setPushToStartToken, show } from "./activity.ts";
 import { state } from "./state.ts";
@@ -15,11 +19,17 @@ export function str(body: Body, key: string): string {
   return v;
 }
 
-// table: { "METHOD /path": handler }; a thrown error becomes a 400.
-export function serve(port: string, table: Record<string, Handler>) {
+// Constant-time compare; hashing first makes the lengths equal.
+const sha = (s: string) => createHash("sha256").update(s).digest();
+const authorized = (header: string | undefined, secret: string) =>
+  timingSafeEqual(sha(header ?? ""), sha(`Bearer ${secret}`));
+
+// table: { "METHOD /path": handler }; a thrown error becomes a 400. secret: see APP_SECRET.
+export function serve(port: string, table: Record<string, Handler>, secret?: string) {
   createServer(async (req, res) => {
     const handler = table[`${req.method} ${req.url}`];
     if (!handler) return res.writeHead(404).end();
+    if (secret && !authorized(req.headers.authorization, secret)) return res.writeHead(401).end();
     let raw = "";
     for await (const c of req) raw += c;
     try {
@@ -36,16 +46,25 @@ export function serve(port: string, table: Record<string, Handler>) {
   }).listen(Number(port), () => console.log(`listening on :${port}`));
 }
 
-// No auth: /state exposes push tokens. Never expose this port publicly.
-export const serveApp = () =>
-  serve(process.env.PORT || "8790", {
-    // app -> server
-    "POST /push-to-start-token": (b) => setPushToStartToken(str(b, "token")),
-    "POST /activity-token": (b) => setActivity(str(b, "id"), str(b, "token")),
-    "POST /activities": (b) =>
-      setAliveActivities(Array.isArray(b.ids) ? b.ids.filter((id) => typeof id === "string") : []),
-    // you -> server
-    "POST /message": (b) => show({ ...state.display, message: str(b, "message") }),
-    "POST /start": () => restart(),
-    "GET /state": () => state,
-  });
+// /state exposes push tokens: without APP_SECRET, never expose this port publicly.
+export function serveApp() {
+  const { APP_SECRET } = process.env;
+  if (!APP_SECRET) console.log("no APP_SECRET: app routes are open, keep them on the LAN");
+  serve(
+    process.env.PORT || "8790",
+    {
+      // app -> server
+      "POST /push-to-start-token": (b) => setPushToStartToken(str(b, "token")),
+      "POST /activity-token": (b) => setActivity(str(b, "id"), str(b, "token")),
+      "POST /activities": (b) =>
+        setAliveActivities(
+          Array.isArray(b.ids) ? b.ids.filter((id) => typeof id === "string") : [],
+        ),
+      // you -> server
+      "POST /message": (b) => show({ ...state.display, message: str(b, "message") }),
+      "POST /start": () => restart(),
+      "GET /state": () => state,
+    },
+    APP_SECRET,
+  );
+}

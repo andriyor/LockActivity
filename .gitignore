@@ -11,3 +11,5 @@ server/state.json
 .idea
 .env
 node_modules/
+# APP_SECRET for the app (see ios/Secrets.xcconfig.example)
+ios/Secrets.xcconfig

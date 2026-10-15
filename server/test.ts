@@ -163,8 +163,19 @@ try {
   s.child.kill();
 
   // --- webhook mode: signature check and validation handshake
-  const w = run("./toggl-webhook.ts", 9872, { TOGGL_WEBHOOK_SECRET: "sek", WEBHOOK_PORT: "9873" });
+  const w = run("./toggl-webhook.ts", 9872, {
+    TOGGL_WEBHOOK_SECRET: "sek",
+    WEBHOOK_PORT: "9873",
+    APP_SECRET: "app",
+  });
   await w.waitFor("webhook server", () => w.lines.some((l) => l.includes(":9873")));
+  await w.waitFor("app server", () => w.lines.some((l) => l.includes(":9872")));
+  // APP_SECRET guards the app routes
+  const st = (auth?: string) =>
+    fetch("http://localhost:9872/state", { headers: auth ? { authorization: auth } : {} });
+  assert.equal((await st()).status, 401, "no secret is rejected");
+  assert.equal((await st("Bearer nope")).status, 401, "wrong secret is rejected");
+  assert.equal((await st("Bearer app")).status, 200);
   const body = JSON.stringify({ validation_code: "v1" });
   const sig = createHmac("sha256", "sek").update(body).digest("hex");
   const hook = (signature: string) =>
