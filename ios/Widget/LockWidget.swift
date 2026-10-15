@@ -20,7 +20,7 @@ struct LockLiveActivity: Widget {
       .foregroundStyle(.white)
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding()
-      .activityBackgroundTint(.black.opacity(0.6))
+      .activityBackgroundTint(.black)  // opaque: a translucent tint shows through in StandBy
       .activitySystemActionForegroundColor(.white)
     } dynamicIsland: { ctx in
       DynamicIsland {
