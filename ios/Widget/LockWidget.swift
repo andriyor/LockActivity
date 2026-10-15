@@ -26,14 +26,23 @@ struct LockLiveActivity: Widget {
       DynamicIsland {
         DynamicIslandExpandedRegion(.center) { Text(ctx.state.message) }
       } compactLeading: {
-        Image(systemName: "lock.fill")
+        TimerIcon(running: ctx.state.startedAt != nil)
       } compactTrailing: {
         if let startedAt = ctx.state.startedAt {
           Text(startedAt, style: .timer).frame(width: 50)
         }
       } minimal: {
-        Image(systemName: "lock.fill")
+        TimerIcon(running: ctx.state.startedAt != nil)
       }
     }
+  }
+}
+
+// Green play while a timer runs, grey stop when none does.
+struct TimerIcon: View {
+  let running: Bool
+  var body: some View {
+    Image(systemName: running ? "play.circle.fill" : "stop.circle")
+      .foregroundStyle(running ? .green : .gray)
   }
 }
