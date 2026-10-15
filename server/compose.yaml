@@ -1,0 +1,16 @@
+# docker compose up -d   (from server/; reads .env, also for the ${APNS_KEY_PATH} below)
+services:
+  server:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APNS_KEY_PATH: /key.p8 # the host's key, mounted below
+    volumes:
+      - ${APNS_KEY_PATH}:/key.p8:ro
+      - state:/data
+    ports:
+      - "8790:8790"
+    # webhook mode: command: ["node", "toggl-webhook.ts"], and add "8788:8788" to ports
+volumes:
+  state:

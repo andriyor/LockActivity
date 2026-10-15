@@ -138,6 +138,9 @@ Needs an always-on process (restart tick, state file) and HTTP/2 to APNs, so ser
 - iPhone → server: ATS only allows plain `http://` to `.local` names and IP addresses, so
   `http://<mac>.local:8790` (same Wi-Fi) or `http://<tailscale-ip>:8790` (Tailscale on the phone,
   VPN On Demand so token reports never miss) work; a full domain needs HTTPS.
+- Docker: `cd server && docker compose up -d` reads `server/.env`, mounts the key from
+  `APNS_KEY_PATH` and keeps the state in a volume (not `server/state.json`, so the phone's tokens
+  are re-sent on the next app launch). Webhook mode: see the comment in `server/compose.yaml`.
 
 ## Possible next steps
 
